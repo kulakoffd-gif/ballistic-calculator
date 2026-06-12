@@ -1,0 +1,20 @@
+{
+  "name": "Стрелок — баллистика и журнал",
+  "short_name": "Стрелок",
+  "description": "Баллистический калькулятор G1/G7 и журнал стрельб: погода, GPS, фото, поправки.",
+  "lang": "ru",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e14",
+  "theme_color": "#0a0e14",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Скай-Рейндж">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<title>СкайРейндж — баллистика и журнал</title>
+</head>
+<body>
+<header class="topbar" id="topbar">
+  <button class="ico" id="btnBack" aria-label="Назад" hidden>‹</button>
+  <div style="flex:1;min-width:0;">
+    <h1 id="title">СкайРейндж</h1>
+    <div class="sub" id="subtitle" hidden></div>
+  </div>
+  <button class="ico" id="btnMenu" aria-label="Меню">≡</button>
+</header>
+
+<div class="progress" id="progress" hidden><div style="width:0%"></div></div>
+
+<nav id="drawer" class="drawer" hidden>
+  <a href="#/">Главная</a>
+  <a href="#/ranges">Полигоны</a>
+  <a href="#/calc">Быстрый калькулятор</a>
+  <a href="#/weapons">Оружие</a>
+  <a href="#/cartridges">Патроны</a>
+  <a href="#/settings">Настройки</a>
+</nav>
+
+<main id="view"></main>
+
+<script src="ballistics.js"></script>
+<script src="storage.js"></script>
+<script src="devices.js"></script>
+<script src="app.js"></script>
+<script>
+// SW нужен только в web-режиме (PWA-фоллбэк). В нативном Capacitor — пропускаем.
+if (!window.Capacitor?.isNativePlatform?.() && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
