@@ -1199,6 +1199,303 @@ route('/range/:id/map', async ({ id }) => {
   }
 });
 
+// ============== JOURNAL (поиск с фильтрами по всем попаданиям) ==============
+route('/journal', async () => {
+  setHeader({ title: 'Журнал' });
+  const [hits, ranges, positions, targets, cartridges, weapons] = await Promise.all([
+    Store.getAll('hits'), Store.getAll('ranges'), Store.getAll('positions'),
+    Store.getAll('targets'), Store.getAll('cartridges'), Store.getAll('weapons')
+  ]);
+  const rangeName = id => ranges.find(r => r.id === id)?.name || '—';
+  const posName   = id => positions.find(p => p.id === id)?.name || '—';
+  const tgtName   = id => targets.find(t => t.id === id)?.name || '—';
+  const cartName  = id => cartridges.find(c => c.id === id)?.name || '—';
+  const wpnName   = id => weapons.find(w => w.id === id)?.name || '—';
+
+  // --- состояние фильтров (хранится в localStorage) ---
+  let F = JSON.parse(localStorage.getItem('journal:F') || '{}');
+  F.rangeIds      = F.rangeIds || [];
+  F.cartridgeIds  = F.cartridgeIds || [];
+  F.weaponIds     = F.weaponIds || [];
+  F.positionIds   = F.positionIds || [];
+  ['tempMin','tempMax','humMin','humMax','windMin','windMax','distMin','distMax']
+    .forEach(k => F[k] = (F[k] ?? null));
+  F.dateFrom = F.dateFrom || '';
+  F.dateTo   = F.dateTo || '';
+  F.hitOnly  = F.hitOnly || 'all'; // all|hit|miss
+  F.sortBy   = F.sortBy || 'date_desc';
+  F.groupBy  = F.groupBy || 'none'; // none|cartridge|range|distance
+  function saveF() { localStorage.setItem('journal:F', JSON.stringify(F)); render(); }
+
+  if (hits.length === 0) {
+    view.appendChild(el('div', { class: 'banner' },
+      'Записей в журнале пока нет. После расчёта в wizard'е жми «В историю попаданий» и фиксируй фактическое снижение/боковую — здесь они появятся.'));
+    return;
+  }
+
+  // --- основной layout ---
+  const filterCard = el('div', { class: 'card' });
+  const statsCard  = el('div', { class: 'card' });
+  const resultsEl  = el('div');
+  view.appendChild(filterCard);
+  view.appendChild(statsCard);
+  view.appendChild(resultsEl);
+
+  // --- фильтры ---
+  function buildChipRow(label, items, getId, getLabel, fieldName) {
+    const wrap = el('div', { style: 'margin-bottom:10px' });
+    wrap.appendChild(el('label', {}, label));
+    const chips = el('div', { class: 'chips' });
+    chips.appendChild(el('div', {
+      class: 'chip' + (F[fieldName].length === 0 ? ' active' : ''),
+      onclick: () => { F[fieldName] = []; saveF(); }
+    }, 'Все'));
+    for (const it of items) {
+      const id = getId(it);
+      chips.appendChild(el('div', {
+        class: 'chip' + (F[fieldName].includes(id) ? ' active' : ''),
+        onclick: () => {
+          if (F[fieldName].includes(id)) F[fieldName] = F[fieldName].filter(x => x !== id);
+          else F[fieldName] = [...F[fieldName], id];
+          saveF();
+        }
+      }, getLabel(it)));
+    }
+    wrap.appendChild(chips);
+    return wrap;
+  }
+  function buildRangeRow(label, unit, minKey, maxKey) {
+    const wrap = el('div', { style: 'margin-bottom:8px' });
+    wrap.appendChild(el('label', {}, `${label}${unit ? ', ' + unit : ''}`));
+    const row = el('div', { class: 'row', style: 'display:flex;gap:8px' });
+    const mn = el('input', { type: 'number', placeholder: 'от', value: F[minKey] ?? '',
+      onchange: e => { F[minKey] = e.target.value === '' ? null : parseFloat(e.target.value); saveF(); } });
+    const mx = el('input', { type: 'number', placeholder: 'до', value: F[maxKey] ?? '',
+      onchange: e => { F[maxKey] = e.target.value === '' ? null : parseFloat(e.target.value); saveF(); } });
+    row.appendChild(mn); row.appendChild(mx);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  function renderFilters() {
+    filterCard.innerHTML = '';
+    filterCard.appendChild(el('h2', {}, 'Фильтры'));
+
+    if (ranges.length)
+      filterCard.appendChild(buildChipRow('Полигон', ranges, r => r.id, r => r.name, 'rangeIds'));
+
+    // огневые позиции — только из выбранных полигонов (или все, если ни один не выбран)
+    const visiblePositions = F.rangeIds.length
+      ? positions.filter(p => F.rangeIds.includes(p.rangeId))
+      : positions;
+    if (visiblePositions.length)
+      filterCard.appendChild(buildChipRow('Огневая позиция', visiblePositions, p => p.id, p => p.name, 'positionIds'));
+
+    if (cartridges.length)
+      filterCard.appendChild(buildChipRow('Патрон', cartridges, c => c.id,
+        c => c.name + (c.bulletMass_gr ? ' ' + c.bulletMass_gr + 'gr' : ''), 'cartridgeIds'));
+
+    if (weapons.length)
+      filterCard.appendChild(buildChipRow('Оружие', weapons, w => w.id, w => w.name, 'weaponIds'));
+
+    filterCard.appendChild(el('hr'));
+    filterCard.appendChild(el('div', { class: 'row', style: 'display:flex;gap:8px' },
+      buildRangeRow('Темп.', '°C', 'tempMin', 'tempMax'),
+      buildRangeRow('Влажн.', '%', 'humMin', 'humMax')
+    ));
+    filterCard.appendChild(el('div', { class: 'row', style: 'display:flex;gap:8px' },
+      buildRangeRow('Ветер', 'м/с', 'windMin', 'windMax'),
+      buildRangeRow('Дист.', 'м', 'distMin', 'distMax')
+    ));
+    filterCard.appendChild(el('div', { class: 'row', style: 'display:flex;gap:8px' },
+      el('div', {}, el('label', {}, 'Дата от'),
+        el('input', { type: 'date', value: F.dateFrom,
+          onchange: e => { F.dateFrom = e.target.value; saveF(); } })),
+      el('div', {}, el('label', {}, 'до'),
+        el('input', { type: 'date', value: F.dateTo,
+          onchange: e => { F.dateTo = e.target.value; saveF(); } }))
+    ));
+
+    filterCard.appendChild(el('label', {}, 'Только'));
+    const hitChips = el('div', { class: 'chips' });
+    for (const [v, lbl] of [['all','Все'],['hit','Попадания'],['miss','Промахи']]) {
+      hitChips.appendChild(el('div', {
+        class: 'chip' + (F.hitOnly === v ? ' active' : ''),
+        onclick: () => { F.hitOnly = v; saveF(); }
+      }, lbl));
+    }
+    filterCard.appendChild(hitChips);
+
+    filterCard.appendChild(el('hr'));
+    filterCard.appendChild(el('div', { class: 'row', style: 'display:flex;gap:8px' },
+      el('div', {},
+        el('label', {}, 'Сортировка'),
+        el('select', { onchange: e => { F.sortBy = e.target.value; saveF(); } }, ...[
+          ['date_desc','По дате (новые)'], ['date_asc','По дате (старые)'],
+          ['dist_asc','По дист. (ближние)'], ['dist_desc','По дист. (дальние)'],
+          ['cart','По патрону'], ['range','По полигону'],
+          ['offset_asc','По точности (лучшие)'], ['offset_desc','По точности (худшие)']
+        ].map(([v,l]) => {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = l;
+          if (F.sortBy === v) o.selected = true;
+          return o;
+        }))),
+      el('div', {},
+        el('label', {}, 'Группировка'),
+        el('select', { onchange: e => { F.groupBy = e.target.value; saveF(); } }, ...[
+          ['none','Без'], ['cartridge','По патрону'], ['range','По полигону'], ['distance','По дист. (100м)']
+        ].map(([v,l]) => {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = l;
+          if (F.groupBy === v) o.selected = true;
+          return o;
+        })))
+    ));
+
+    filterCard.appendChild(el('button', { type: 'button', class: 'btn ghost',
+      onclick: () => { localStorage.removeItem('journal:F'); location.reload(); } }, 'Сбросить фильтры'));
+  }
+
+  // --- логика фильтрации/сортировки ---
+  function applyFilters() {
+    let res = hits.slice();
+    if (F.rangeIds.length)     res = res.filter(h => F.rangeIds.includes(h.rangeId));
+    if (F.cartridgeIds.length) res = res.filter(h => F.cartridgeIds.includes(h.cartridgeId));
+    if (F.weaponIds.length)    res = res.filter(h => F.weaponIds.includes(h.weaponId));
+    if (F.positionIds.length)  res = res.filter(h => F.positionIds.includes(h.positionId));
+    if (F.tempMin != null) res = res.filter(h => (h.weather?.tempC ?? Infinity) >= F.tempMin);
+    if (F.tempMax != null) res = res.filter(h => (h.weather?.tempC ?? -Infinity) <= F.tempMax);
+    if (F.humMin != null)  res = res.filter(h => (h.weather?.humidity ?? Infinity) >= F.humMin);
+    if (F.humMax != null)  res = res.filter(h => (h.weather?.humidity ?? -Infinity) <= F.humMax);
+    if (F.windMin != null) res = res.filter(h => (h.windSpeed ?? Infinity) >= F.windMin);
+    if (F.windMax != null) res = res.filter(h => (h.windSpeed ?? -Infinity) <= F.windMax);
+    if (F.distMin != null) res = res.filter(h => (h.distance_m ?? Infinity) >= F.distMin);
+    if (F.distMax != null) res = res.filter(h => (h.distance_m ?? -Infinity) <= F.distMax);
+    if (F.dateFrom) res = res.filter(h => (h.date || '') >= F.dateFrom);
+    if (F.dateTo)   res = res.filter(h => (h.date || '') <= F.dateTo + 'T23:59:59');
+    if (F.hitOnly === 'hit')  res = res.filter(h => h.hit);
+    if (F.hitOnly === 'miss') res = res.filter(h => !h.hit);
+
+    const cmp = (a, b) => {
+      switch (F.sortBy) {
+        case 'date_desc':   return (b.date || '').localeCompare(a.date || '');
+        case 'date_asc':    return (a.date || '').localeCompare(b.date || '');
+        case 'dist_asc':    return (a.distance_m || 0) - (b.distance_m || 0);
+        case 'dist_desc':   return (b.distance_m || 0) - (a.distance_m || 0);
+        case 'cart':        return cartName(a.cartridgeId).localeCompare(cartName(b.cartridgeId));
+        case 'range':       return rangeName(a.rangeId).localeCompare(rangeName(b.rangeId));
+        case 'offset_asc':  return Math.abs(a.dropOffsetMil || 0) - Math.abs(b.dropOffsetMil || 0);
+        case 'offset_desc': return Math.abs(b.dropOffsetMil || 0) - Math.abs(a.dropOffsetMil || 0);
+        default: return 0;
+      }
+    };
+    return res.sort(cmp);
+  }
+
+  // --- статистика ---
+  function renderStats(arr) {
+    statsCard.innerHTML = '';
+    statsCard.appendChild(el('h2', {}, 'Сводка'));
+    const total = arr.length;
+    const withOffs = arr.filter(h => h.dropOffsetMil != null);
+    const avgDrop  = withOffs.length ? withOffs.reduce((s,h)=>s+(h.dropOffsetMil||0),0)/withOffs.length : null;
+    const avgDrift = withOffs.length ? withOffs.reduce((s,h)=>s+(h.driftOffsetMil||0),0)/withOffs.length : null;
+    const hitCount = arr.filter(h => h.hit).length;
+    const hitPct = total ? (hitCount/total*100) : 0;
+    statsCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'Найдено'), el('div', { class: 'v' }, total),
+      el('div', { class: 'k' }, 'Попаданий'), el('div', { class: 'v' }, `${hitCount} (${fmt(hitPct,0)}%)`),
+      el('div', { class: 'k' }, 'Ср. отклонение вертикаль'), el('div', { class: 'v' }, fmt(avgDrop,2) + ' mil'),
+      el('div', { class: 'k' }, 'Ср. отклонение горизонталь'), el('div', { class: 'v' }, fmt(avgDrift,2) + ' mil')
+    ));
+    statsCard.appendChild(el('button', { type: 'button', class: 'btn ghost',
+      onclick: () => exportCSV(arr) }, '⬇ Экспорт CSV'));
+  }
+
+  function exportCSV(arr) {
+    const head = ['date','range','position','target','weapon','cartridge','distance_m','tempC','humidity','pressureMbar','windSpeed_mps','windDir_deg','clock','calcDropMil','actualDropMil','dropOffsetMil','calcDriftMil','actualDriftMil','driftOffsetMil','hit','notes'];
+    const lines = [head.join(',')];
+    for (const h of arr) {
+      lines.push([
+        h.date || '', rangeName(h.rangeId), posName(h.positionId), tgtName(h.targetId),
+        wpnName(h.weaponId), cartName(h.cartridgeId), h.distance_m ?? '',
+        h.weather?.tempC ?? '', h.weather?.humidity ?? '', h.weather?.pressureMbar ?? '',
+        h.windSpeed ?? '', h.windDir ?? '', h.clock || '',
+        h.calcDropMil ?? '', h.actualDropMil ?? '', h.dropOffsetMil ?? '',
+        h.calcDriftMil ?? '', h.actualDriftMil ?? '', h.driftOffsetMil ?? '',
+        h.hit ? '1' : '0', (h.notes || '').replace(/[\n,]/g,' ')
+      ].map(v => typeof v === 'string' && v.includes(',') ? '"'+v+'"' : v).join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'journal-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  // --- рендер результатов ---
+  function renderResults(arr) {
+    resultsEl.innerHTML = '';
+    if (arr.length === 0) {
+      resultsEl.appendChild(el('div', { class: 'banner' }, 'По заданным фильтрам ничего не найдено.'));
+      return;
+    }
+
+    // группировка
+    const groups = new Map();
+    for (const h of arr) {
+      let key = '';
+      if (F.groupBy === 'cartridge') key = cartName(h.cartridgeId);
+      else if (F.groupBy === 'range') key = rangeName(h.rangeId);
+      else if (F.groupBy === 'distance') key = (Math.floor((h.distance_m||0)/100)*100) + '–' + (Math.floor((h.distance_m||0)/100)*100+99) + ' м';
+      else key = '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(h);
+    }
+
+    for (const [key, items] of groups) {
+      if (F.groupBy !== 'none') {
+        resultsEl.appendChild(el('div', {
+          style: 'margin:14px 0 8px;padding:6px 12px;background:var(--panel-2);border-radius:8px;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent-2)'
+        }, `${key} (${items.length})`));
+      }
+      for (const h of items) {
+        const card = el('div', { class: 'list-item' });
+        card.appendChild(el('div', { class: 'ttl' },
+          `${rangeName(h.rangeId)} → ${tgtName(h.targetId)} · ${h.distance_m || '?'} м`,
+          h.hit ? el('span', { style: 'color:var(--good);margin-left:8px' }, '✓') : null
+        ));
+        card.appendChild(el('div', { class: 'sub' },
+          [
+            cartName(h.cartridgeId),
+            posName(h.positionId),
+            h.weather?.tempC != null ? `${fmt(h.weather.tempC,0)}°C` : null,
+            h.weather?.humidity != null ? `${fmt(h.weather.humidity,0)}%` : null,
+            h.windSpeed != null ? `${fmt(h.windSpeed,1)} м/с ${h.clock || ''}` : null
+          ].filter(Boolean).join(' · ')
+        ));
+        card.appendChild(el('div', { class: 'sub' },
+          `расч. ${fmt(h.calcDropMil,2)}/${fmt(h.calcDriftMil,2)} · ` +
+          `факт. ${fmt(h.actualDropMil,2)}/${fmt(h.actualDriftMil,2)} · ` +
+          `Δ ${fmt(h.dropOffsetMil,2)}/${fmt(h.driftOffsetMil,2)} mil · ` +
+          new Date(h.date).toLocaleDateString('ru')
+        ));
+        if (h.notes) card.appendChild(el('div', { class: 'sub', style: 'font-style:italic' }, h.notes));
+        resultsEl.appendChild(card);
+      }
+    }
+  }
+
+  function render() {
+    renderFilters();
+    const arr = applyFilters();
+    renderStats(arr);
+    renderResults(arr);
+  }
+  render();
+});
+
 // ============== QUICK CALC ==============
 route('/calc', async () => {
   setHeader({ title: 'Калькулятор' });
