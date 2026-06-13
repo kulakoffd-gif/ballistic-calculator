@@ -244,6 +244,42 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   100% { opacity: 0; transform: scale(1.05); }
 }
 
+/* ===== AB Quantum-style гигантская карточка результата ===== */
+.solution-card {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--accent-deep);
+  border-radius: 18px;
+  padding: 20px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.solution-card .dist-pick {
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px;
+}
+.solution-card .main-values {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px;
+}
+.solution-card .axis { padding: 8px; }
+.solution-card .axis .lbl {
+  font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 4px;
+}
+.solution-card .axis .val {
+  font-size: 56px; font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.solution-card .axis .val .unit { font-size: 16px; color: var(--accent-2); margin-left: 4px; }
+.solution-card .axis .sub-val {
+  font-size: 14px; color: var(--muted); margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.solution-card .dist-chips {
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  margin-top: 14px;
+}
+.solution-card .dist-chips .chip { font-variant-numeric: tabular-nums; }
+
 /* ===== HUD mode (огромный шрифт результата) ===== */
 .hud-mode .big-num { font-size: 72px !important; }
 .hud-mode .clock-display { font-size: 64px !important; }

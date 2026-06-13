@@ -1855,6 +1855,9 @@ route('/calc', async () => {
     const out = $('#result', form);
     out.innerHTML = '';
     out.appendChild(el('hr'));
+    // применяем сдвиг ко всем строкам
+    for (const row of res.rows) if (c) applyCartridgeOffset(row, c, rezeroed);
+
     // плашка о применённом сдвиге, если есть
     if (c && !c.isBase && !rezeroed && (c.offsetVertMil || c.offsetHorizMil)) {
       out.appendChild(el('div', { class: 'info-card' },
@@ -1862,15 +1865,58 @@ route('/calc', async () => {
         el('div', { class: 'muted center' },
           `К поправкам добавлен сдвиг: V ${fmt(-(c.offsetVertMil||0),2)} mil, H ${fmt(-(c.offsetHorizMil||0),2)} mil`)));
     }
+
+    // — БОЛЬШАЯ карточка решения (AB Quantum-style) —
+    const lastBig = parseFloat(localStorage.getItem('calc:bigDist')) || res.rows[Math.floor(res.rows.length / 2)].range;
+    let bigDist = res.rows.find(r => r.range === lastBig)?.range ?? res.rows[0].range;
+    const solCard = el('div', { class: 'solution-card' });
+    const distLabel = el('div', { class: 'dist-pick' }, '');
+    const mainGrid = el('div', { class: 'main-values' });
+    const distChips = el('div', { class: 'dist-chips' });
+    solCard.appendChild(distLabel);
+    solCard.appendChild(mainGrid);
+    solCard.appendChild(distChips);
+    out.appendChild(solCard);
+
+    function renderBig() {
+      const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
+      distLabel.textContent = `ДИСТАНЦИЯ ${row.range} м`;
+      mainGrid.innerHTML = '';
+      mainGrid.appendChild(el('div', { class: 'axis' },
+        el('div', { class: 'lbl' }, 'Вертикаль'),
+        el('div', { class: 'val' }, fmt(row.drop_mil, 2), el('span', { class: 'unit' }, 'mil')),
+        el('div', { class: 'sub-val' }, `${fmt(row.drop_moa, 1)} MOA · ${fmt(-row.drop_m * 100, 0)} см`)
+      ));
+      mainGrid.appendChild(el('div', { class: 'axis' },
+        el('div', { class: 'lbl' }, 'Горизонталь'),
+        el('div', { class: 'val' }, fmt(row.drift_mil, 2), el('span', { class: 'unit' }, 'mil')),
+        el('div', { class: 'sub-val' }, `${fmt(row.drift_moa, 1)} MOA · ${fmt(row.drift_m * 100, 0)} см`)
+      ));
+      distChips.innerHTML = '';
+      for (const r2 of res.rows) {
+        distChips.appendChild(el('div', {
+          class: 'chip' + (r2.range === bigDist ? ' active' : ''),
+          onclick: () => { bigDist = r2.range; localStorage.setItem('calc:bigDist', String(r2.range)); renderBig(); }
+        }, r2.range + 'м'));
+      }
+    }
+    renderBig();
+
+    // — параметры мелким kv —
     const DA_ft = Ballistics.densityAltitude_ft({tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity});
-    out.appendChild(el('div', { class: 'kv' },
+    const paramCard = el('div', { class: 'card' });
+    paramCard.appendChild(el('h2', {}, 'Атмосфера и баллистика'));
+    paramCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'V на цели'),
+      el('div', { class: 'v' }, fmt((res.rows.find(r=>r.range===bigDist) || res.rows[0]).vel_mps, 0) + ' м/с'),
+      el('div', { class: 'k' }, 'Время полёта'),
+      el('div', { class: 'v' }, fmt((res.rows.find(r=>r.range===bigDist) || res.rows[0]).tof_s, 2) + ' с'),
       el('div', { class: 'k' }, 'Плотность воздуха'), el('div', { class: 'v' }, fmt(res.airDensity,3) + ' кг/м³'),
       el('div', { class: 'k' }, 'Density Altitude'), el('div', { class: 'v' }, fmt(DA_ft,0) + ' ft'),
       el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, fmt(res.speedOfSound,1) + ' м/с'),
       el('div', { class: 'k' }, 'Угол бросания'), el('div', { class: 'v' }, fmt(res.launchAngle_deg,3) + '°')
     ));
-    // применяем сдвиг ко всем строкам
-    for (const row of res.rows) if (c) applyCartridgeOffset(row, c, rezeroed);
+    out.appendChild(paramCard);
 
     // — табы «Поправки | Прицел» —
     const reticle = w?.reticleId ? await Store.get('reticles', w.reticleId) : null;
@@ -1901,7 +1947,7 @@ route('/calc', async () => {
       }
     }
     const tabT = el('div', { class: 'chip active', 'data-tab': 'table',
-      onclick: () => { activeTab = 'table'; renderActive(); }}, 'Поправки');
+      onclick: () => { activeTab = 'table'; renderActive(); }}, 'Все дистанции');
     const tabR = el('div', { class: 'chip', 'data-tab': 'reticle',
       onclick: () => { activeTab = 'reticle'; renderActive(); }}, 'Прицел');
     tabsRow.appendChild(tabT); tabsRow.appendChild(tabR);
