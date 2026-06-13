@@ -99,7 +99,9 @@ function solverWindAngle(windToDirDeg, shotAzimuthDeg) {
 }
 
 // ============== compass SVG ==============
-function createCompass({ value = 0, onChange, size = 280 }) {
+// fireDir (опц.) — азимут направления огня (gray стрелка). Если задан, рисуется
+// вторая «фоновая» стрелка-винтовка для ориентира.
+function createCompass({ value = 0, fireDir = null, onChange, size = 280 }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '-100 -100 200 200');
@@ -147,7 +149,28 @@ function createCompass({ value = 0, onChange, size = 280 }) {
     t.textContent = a + '°';
     svg.appendChild(t);
   }
-  // arrow group
+  // fire-direction arrow (gray, фоновая) — рисуется ПЕРВОЙ чтобы быть позади
+  let fireArrow = null;
+  if (fireDir != null) {
+    fireArrow = document.createElementNS(NS, 'g');
+    fireArrow.innerHTML = `
+      <line x1="0" y1="0" x2="0" y2="-78" stroke="#7a8699" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+      <polygon points="0,-86 -5,-76 5,-76" fill="#7a8699" opacity="0.7"/>
+    `;
+    fireArrow.setAttribute('transform', `rotate(${fireDir})`);
+    svg.appendChild(fireArrow);
+    // подпись «огонь»
+    const fireRad = (fireDir - 90) * Math.PI / 180;
+    const fireLab = document.createElementNS(NS, 'text');
+    fireLab.setAttribute('x', Math.cos(fireRad) * 96);
+    fireLab.setAttribute('y', Math.sin(fireRad) * 96 + 2);
+    fireLab.setAttribute('text-anchor', 'middle');
+    fireLab.setAttribute('fill', '#7a8699'); fireLab.setAttribute('font-size', '7');
+    fireLab.textContent = '🎯';
+    svg.appendChild(fireLab);
+  }
+
+  // wind arrow group (orange, поверх)
   const arrow = document.createElementNS(NS, 'g');
   arrow.innerHTML = `
     <line x1="0" y1="0" x2="0" y2="-58" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
@@ -1081,7 +1104,11 @@ async function renderStepWind(range) {
     });
     wrap.appendChild(clock.svg);
   } else {
-    const comp = createCompass({ value: Wiz.wind.dir, onChange: v => { Wiz.wind.dir = v; updateAux(); } });
+    const comp = createCompass({
+      value: Wiz.wind.dir,
+      fireDir: tgt.azimuth_deg ?? null,
+      onChange: v => { Wiz.wind.dir = v; updateAux(); }
+    });
     wrap.appendChild(comp.svg);
   }
   view.appendChild(wrap);
