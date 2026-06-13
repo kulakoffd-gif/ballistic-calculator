@@ -244,6 +244,56 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   100% { opacity: 0; transform: scale(1.05); }
 }
 
+/* ===== AB Quantum: стрелки направления у поправок ===== */
+.dir-arrow {
+  display: inline-block; margin: 0 6px; font-size: 28px;
+  vertical-align: middle; color: var(--accent);
+  text-shadow: 0 2px 8px rgba(255,139,61,0.4);
+}
+.dir-arrow.dim { color: var(--muted); opacity: 0.4; }
+
+/* ===== range stepper ===== */
+.range-stepper {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; margin-top: 14px;
+}
+.range-stepper button.step {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--panel-2); border: 1.5px solid var(--accent);
+  color: var(--accent); font-size: 24px; font-weight: 600;
+  cursor: pointer; line-height: 1;
+}
+.range-stepper button.step:active { background: var(--accent); color: #1a0e05; }
+.range-stepper .range-input {
+  font-size: 24px; font-weight: 600; color: var(--accent);
+  text-align: center; width: 110px;
+  background: transparent; border: 0; border-bottom: 1px dashed var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.range-stepper .step-size {
+  font-size: 11px; color: var(--muted); letter-spacing: 1.5px;
+  text-transform: uppercase; cursor: pointer; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel);
+}
+
+/* ===== per-field источники данных ===== */
+.field-with-sources {
+  display: flex; align-items: flex-end; gap: 4px;
+}
+.field-with-sources > label { flex: 1; }
+.field-with-sources .sources {
+  display: flex; gap: 2px; margin-bottom: 7px;
+}
+.field-with-sources .sources button {
+  width: 28px; height: 28px; padding: 0;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--accent); cursor: pointer;
+  font-size: 12px; line-height: 1;
+}
+.field-with-sources .sources button:active { background: var(--accent); color: #1a0e05; }
+.field-with-sources .sources button[disabled] { opacity: 0.3; cursor: not-allowed; }
+
 /* ===== AB Quantum-style гигантская карточка результата ===== */
 .solution-card {
   background: linear-gradient(180deg, var(--panel-2), var(--panel));

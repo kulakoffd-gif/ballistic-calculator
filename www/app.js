@@ -1866,40 +1866,100 @@ route('/calc', async () => {
           `К поправкам добавлен сдвиг: V ${fmt(-(c.offsetVertMil||0),2)} mil, H ${fmt(-(c.offsetHorizMil||0),2)} mil`)));
     }
 
-    // — БОЛЬШАЯ карточка решения (AB Quantum-style) —
+    // — БОЛЬШАЯ карточка решения (AB Quantum-style: live ± stepper + стрелки направления) —
     const lastBig = parseFloat(localStorage.getItem('calc:bigDist')) || res.rows[Math.floor(res.rows.length / 2)].range;
     let bigDist = res.rows.find(r => r.range === lastBig)?.range ?? res.rows[0].range;
+    const lastStep = parseFloat(localStorage.getItem('calc:bigStep')) || 50;
+    let stepSize = lastStep;
     const solCard = el('div', { class: 'solution-card' });
     const distLabel = el('div', { class: 'dist-pick' }, '');
     const mainGrid = el('div', { class: 'main-values' });
-    const distChips = el('div', { class: 'dist-chips' });
+    const stepperRow = el('div', { class: 'range-stepper' });
     solCard.appendChild(distLabel);
     solCard.appendChild(mainGrid);
-    solCard.appendChild(distChips);
+    solCard.appendChild(stepperRow);
     out.appendChild(solCard);
 
-    function renderBig() {
-      const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
-      distLabel.textContent = `ДИСТАНЦИЯ ${row.range} м`;
-      mainGrid.innerHTML = '';
-      mainGrid.appendChild(el('div', { class: 'axis' },
-        el('div', { class: 'lbl' }, 'Вертикаль'),
-        el('div', { class: 'val' }, fmt(row.drop_mil, 2), el('span', { class: 'unit' }, 'mil')),
-        el('div', { class: 'sub-val' }, `${fmt(row.drop_moa, 1)} MOA · ${fmt(-row.drop_m * 100, 0)} см`)
-      ));
-      mainGrid.appendChild(el('div', { class: 'axis' },
-        el('div', { class: 'lbl' }, 'Горизонталь'),
-        el('div', { class: 'val' }, fmt(row.drift_mil, 2), el('span', { class: 'unit' }, 'mil')),
-        el('div', { class: 'sub-val' }, `${fmt(row.drift_moa, 1)} MOA · ${fmt(row.drift_m * 100, 0)} см`)
-      ));
-      distChips.innerHTML = '';
-      for (const r2 of res.rows) {
-        distChips.appendChild(el('div', {
-          class: 'chip' + (r2.range === bigDist ? ' active' : ''),
-          onclick: () => { bigDist = r2.range; localStorage.setItem('calc:bigDist', String(r2.range)); renderBig(); }
-        }, r2.range + 'м'));
-      }
+    // живой single-distance solve (быстрее чем full table)
+    function solveAt(dist) {
+      const inp = { ...input, steps: [dist], targetDistance: Math.max(dist, input.zeroDistance || 100) };
+      const r2 = Ballistics.solve(inp);
+      const row = r2.rows[0];
+      if (row && c) applyCartridgeOffset(row, c, rezeroed);
+      return row;
     }
+
+    function dirArrow(value, axis) {
+      // axis='v': положит. = подкрутить ВВЕРХ → ▲; отриц. = ▼
+      // axis='h': положит. = подкрутить ВПРАВО → ►; отриц. = ◄
+      const v = Number(value) || 0;
+      const eps = 0.005;
+      if (axis === 'v') return Math.abs(v) < eps ? '·' : (v > 0 ? '▲' : '▼');
+      return Math.abs(v) < eps ? '·' : (v > 0 ? '►' : '◄');
+    }
+
+    function renderBig() {
+      const row = solveAt(bigDist);
+      if (!row) return;
+      distLabel.textContent = `ДИСТАНЦИЯ ${bigDist} м`;
+      mainGrid.innerHTML = '';
+      const dropAxis = el('div', { class: 'axis' });
+      dropAxis.appendChild(el('div', { class: 'lbl' }, 'Вертикаль'));
+      const dropVal = el('div', { class: 'val' });
+      dropVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drop_mil, 'v')));
+      dropVal.appendChild(document.createTextNode(fmt(Math.abs(row.drop_mil), 2)));
+      dropVal.appendChild(el('span', { class: 'unit' }, 'mil'));
+      dropAxis.appendChild(dropVal);
+      dropAxis.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row.drop_moa), 1)} MOA · ${fmt(Math.abs(row.drop_m) * 100, 0)} см`));
+      mainGrid.appendChild(dropAxis);
+
+      const driftAxis = el('div', { class: 'axis' });
+      driftAxis.appendChild(el('div', { class: 'lbl' }, 'Горизонталь'));
+      const drVal = el('div', { class: 'val' });
+      drVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drift_mil, 'h')));
+      drVal.appendChild(document.createTextNode(fmt(Math.abs(row.drift_mil), 2)));
+      drVal.appendChild(el('span', { class: 'unit' }, 'mil'));
+      driftAxis.appendChild(drVal);
+      driftAxis.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row.drift_moa), 1)} MOA · ${fmt(Math.abs(row.drift_m) * 100, 0)} см`));
+      mainGrid.appendChild(driftAxis);
+    }
+
+    function renderStepper() {
+      stepperRow.innerHTML = '';
+      stepperRow.appendChild(el('button', { type: 'button', class: 'step', onclick: () => {
+        bigDist = Math.max(0, bigDist - stepSize);
+        localStorage.setItem('calc:bigDist', String(bigDist));
+        flashZeroReminder(bigDist);
+        renderBig();
+        rangeInp.value = bigDist;
+      }}, '−'));
+      const rangeInp = el('input', { class: 'range-input', type: 'number', inputmode: 'numeric', value: bigDist });
+      rangeInp.addEventListener('input', () => {
+        const v = parseFloat(rangeInp.value);
+        if (isFinite(v) && v > 0) {
+          bigDist = v;
+          localStorage.setItem('calc:bigDist', String(bigDist));
+          renderBig();
+        }
+      });
+      stepperRow.appendChild(rangeInp);
+      stepperRow.appendChild(el('button', { type: 'button', class: 'step', onclick: () => {
+        bigDist = bigDist + stepSize;
+        localStorage.setItem('calc:bigDist', String(bigDist));
+        flashZeroReminder(bigDist);
+        renderBig();
+        rangeInp.value = bigDist;
+      }}, '+'));
+      const stepBtn = el('button', { type: 'button', class: 'step-size', onclick: () => {
+        const opts = [10, 25, 50, 100, 200];
+        const i = opts.indexOf(stepSize);
+        stepSize = opts[(i + 1) % opts.length];
+        localStorage.setItem('calc:bigStep', String(stepSize));
+        stepBtn.textContent = '±' + stepSize + 'м';
+      }}, '±' + stepSize + 'м');
+      stepperRow.appendChild(stepBtn);
+    }
+    renderStepper();
     renderBig();
 
     // — параметры мелким kv —
