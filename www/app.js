@@ -554,6 +554,35 @@ route('/', async () => {
   const actions = el('div', { class: 'actions' });
   actions.appendChild(el('a', { class: 'btn good', href: '#/ranges' }, ranges.length ? 'Выбор полигона' : 'Создать полигон'));
   actions.appendChild(el('a', { class: 'btn outline', href: '#/calc' }, 'Быстрый калькулятор'));
+
+  // — чекбокс «Движка» —
+  const movWrap = el('div', { style: 'margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel)' });
+  const movCb = el('input', { type: 'checkbox', style: 'width:22px;height:22px;accent-color:var(--accent)' });
+  const movLabel = el('label', { class: 'checkbox', style: 'padding:0' },
+    movCb,
+    el('span', { class: 'lbl', style: 'font-size:16px;letter-spacing:1px' }, '🎯 Движка (движущаяся цель)',
+      el('span', { class: 'sub' }, 'Расчёт упреждения (lead)'))
+  );
+  movWrap.appendChild(movLabel);
+  const movSubBox = el('div', { style: 'display:none;margin-top:12px;gap:8px;flex-direction:column' });
+  movSubBox.appendChild(el('button', { type: 'button', class: 'btn', onclick: () => {
+    const st = JSON.parse(localStorage.getItem('moving:last') || '{}');
+    st.mode = 'linear';
+    localStorage.setItem('moving:last', JSON.stringify(st));
+    location.hash = '#/moving-target';
+  }}, '↔ Линейная цель'));
+  movSubBox.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => {
+    const st = JSON.parse(localStorage.getItem('moving:last') || '{}');
+    st.mode = 'rotor';
+    localStorage.setItem('moving:last', JSON.stringify(st));
+    location.hash = '#/moving-target';
+  }}, '⟲ Ротор / вращающаяся'));
+  movWrap.appendChild(movSubBox);
+  movCb.addEventListener('change', () => {
+    movSubBox.style.display = movCb.checked ? 'flex' : 'none';
+  });
+  actions.appendChild(movWrap);
+
   splash.appendChild(actions);
   view.appendChild(splash);
 });
