@@ -200,6 +200,110 @@ function createCompass({ value = 0, onChange, size = 280 }) {
   return { svg, setAngle, get value() { return value; } };
 }
 
+// ============== wind clock picker ==============
+// Часовой циферблат для ввода ветра. Цифры 1..12 расставлены по окружности.
+// 12 = «откуда ветер из 12 часов = встречный (headwind)».
+// При тапе на цифру / сектор — задаёт абсолютное направление «куда дует ветер»
+// с учётом азимута выстрела:
+//   windToDir = (shotAz + H * 30 + 180) % 360
+function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '-100 -100 200 200');
+  svg.setAttribute('class', 'compass');
+  // фон
+  const bg = document.createElementNS(NS, 'circle');
+  bg.setAttribute('cx', 0); bg.setAttribute('cy', 0); bg.setAttribute('r', 88);
+  bg.setAttribute('fill', 'none'); bg.setAttribute('stroke', '#2a4a35');
+  bg.setAttribute('stroke-width', '1.5');
+  svg.appendChild(bg);
+  // сектора-кнопки 1..12 (каждый по 30°)
+  const labels = [];
+  for (let H = 1; H <= 12; H++) {
+    const ang = H * 30 - 90; // 12 в самом верху
+    const rad = ang * Math.PI / 180;
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', Math.cos(rad) * 68);
+    t.setAttribute('y', Math.sin(rad) * 68 + 7);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-size', H % 3 === 0 ? '20' : '15');
+    t.setAttribute('font-weight', H % 3 === 0 ? '700' : '500');
+    t.setAttribute('fill', '#7a8699');
+    t.style.cursor = 'pointer';
+    t.textContent = H;
+    t.addEventListener('click', () => setHour(H));
+    svg.appendChild(t);
+    labels.push({ H, el: t });
+  }
+  // подписи направлений
+  for (const [lab, H, color] of [['встр.',12,'#ff8b3d'],['справа',3,'#7a8699'],['попут.',6,'#7a8699'],['слева',9,'#7a8699']]) {
+    const ang = H * 30 - 90;
+    const rad = ang * Math.PI / 180;
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', Math.cos(rad) * 86);
+    t.setAttribute('y', Math.sin(rad) * 86 + 3);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('font-size', '7');
+    t.setAttribute('fill', color);
+    t.textContent = lab;
+    svg.appendChild(t);
+  }
+  // стрелка от центра к часовой позиции (откуда дует)
+  const arrow = document.createElementNS(NS, 'g');
+  arrow.innerHTML = `<line x1="0" y1="0" x2="0" y2="-50" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="0,-58 -6,-48 6,-48" fill="#ff8b3d"/>
+    <circle cx="0" cy="0" r="4" fill="#ff8b3d"/>`;
+  svg.appendChild(arrow);
+  // центральная подпись
+  const centerNum = document.createElementNS(NS, 'text');
+  centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 24);
+  centerNum.setAttribute('text-anchor', 'middle');
+  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '20');
+  centerNum.setAttribute('font-weight', '600');
+  svg.appendChild(centerNum);
+  const subNum = document.createElementNS(NS, 'text');
+  subNum.setAttribute('x', 0); subNum.setAttribute('y', 36);
+  subNum.setAttribute('text-anchor', 'middle');
+  subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '6');
+  subNum.textContent = 'ВЕТЕР ОТКУДА';
+  svg.appendChild(subNum);
+
+  let currentH = 12;
+  function hourFromAbs(windToDir) {
+    // обратное преобразование windToDir → H
+    const rel = ((windToDir - shotAz - 180) % 360 + 360) % 360; // 0..360
+    let H = Math.round(rel / 30); if (H === 0) H = 12;
+    return H;
+  }
+  function setHour(H) {
+    currentH = H;
+    const ang = H * 30; // от верха по часовой
+    arrow.setAttribute('transform', `rotate(${ang})`);
+    centerNum.textContent = H + ':00';
+    labels.forEach(l => l.el.setAttribute('fill', l.H === H ? '#ff8b3d' : '#7a8699'));
+    const windToDir = ((shotAz + H * 30 + 180) % 360 + 360) % 360;
+    if (onChange) onChange(windToDir, H);
+  }
+  function setFromAbs(windToDir) {
+    setHour(hourFromAbs(windToDir));
+  }
+  // фон-сектор для тапа в любую часть круга
+  bg.style.cursor = 'pointer';
+  svg.addEventListener('click', (e) => {
+    const rect = svg.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    if (Math.hypot(dx, dy) < 6) return; // центр игнор
+    let a = Math.atan2(dx, -dy) * 180 / Math.PI; // 0 = вверх (12 ч)
+    if (a < 0) a += 360;
+    let H = Math.round(a / 30); if (H === 0) H = 12; if (H > 12) H = H - 12;
+    setHour(H);
+  });
+  setFromAbs(value);
+  return { svg, setHour, setFromAbs, get hour() { return currentH; } };
+}
+
 // ============== forms ==============
 function numInput(name, label, val, attrs = {}) {
   return el('div', {},
@@ -953,12 +1057,33 @@ async function renderStepWind(range) {
     el('div', { class: 'muted center' }, `${pos?.name || 'позиция'} → ${tgt.name} (${tgt.distance_m} м)`)
   ));
 
-  view.appendChild(el('div', { class: 'banner' }, 'Укажи направление, куда дует ветер по компасу'));
-  view.appendChild(el('div', { class: 'compass-sub' }, 'Направление ветра'));
+  view.appendChild(el('div', { class: 'banner' }, 'Укажи направление ветра — компасом (куда дует) или по часам (откуда дует относительно цели).'));
+
+  // переключатель компас/часы
+  const windMode = localStorage.getItem('windPickerMode') || 'compass';
+  const wmRow = el('div', { class: 'chips', style: 'justify-content:center;margin:6px 0' });
+  const cmChip = el('div', { class: 'chip' + (windMode === 'compass' ? ' active' : ''),
+    onclick: () => { localStorage.setItem('windPickerMode', 'compass'); renderWizardCurrent(); }}, '🧭 Компас');
+  const clChip = el('div', { class: 'chip' + (windMode === 'clock' ? ' active' : ''),
+    onclick: () => { localStorage.setItem('windPickerMode', 'clock'); renderWizardCurrent(); }}, '🕐 Часы');
+  wmRow.appendChild(cmChip); wmRow.appendChild(clChip);
+  view.appendChild(wmRow);
+
+  view.appendChild(el('div', { class: 'compass-sub' },
+    windMode === 'compass' ? 'Направление ветра (куда дует)' : 'Откуда дует ветер (часы)'));
 
   const wrap = el('div', { class: 'compass-wrap' });
-  const comp = createCompass({ value: Wiz.wind.dir, onChange: v => { Wiz.wind.dir = v; updateAux(); } });
-  wrap.appendChild(comp.svg);
+  if (windMode === 'clock') {
+    const clock = createWindClock({
+      value: Wiz.wind.dir,
+      shotAz: tgt.azimuth_deg ?? 0,
+      onChange: (windToDir) => { Wiz.wind.dir = windToDir; updateAux(); }
+    });
+    wrap.appendChild(clock.svg);
+  } else {
+    const comp = createCompass({ value: Wiz.wind.dir, onChange: v => { Wiz.wind.dir = v; updateAux(); } });
+    wrap.appendChild(comp.svg);
+  }
   view.appendChild(wrap);
 
   const aux = el('div', { class: 'kv', style: 'padding:0 14px' });
@@ -1664,6 +1789,21 @@ route('/calc', async () => {
     numInput('windSpeed', 'Скорость, м/с', state.windSpeed ?? 0),
     numInput('windAngle_deg', 'Угол отн. ствола, °', state.windAngle_deg ?? 90)
   ));
+  form.appendChild(el('h2', {}, 'Кориолис (опц.)'));
+  form.appendChild(el('div', { class: 'banner' },
+    'Для учёта эффекта Кориолиса заполни широту места выстрела и азимут к цели. Без них Кориолис нулевой.'));
+  form.appendChild(el('div', { class: 'row' },
+    numInput('latitude_deg', 'Широта, ° (+ север)', state.latitude_deg ?? 55),
+    numInput('azimuth_deg', 'Азимут к цели, °', state.azimuth_deg ?? 0)
+  ));
+  form.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:6px',
+    onclick: async () => {
+      try {
+        const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
+        form.latitude_deg.value = pos.coords.latitude.toFixed(3);
+        toast('Широта с GPS');
+      } catch (e) { toast('GPS: ' + e.message); }
+    }}, '📍 Взять широту с GPS'));
   form.appendChild(el('h2', {}, 'Дистанции'));
   form.appendChild(textInput('distances', 'через запятую, м', state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
   form.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Рассчитать'));
@@ -1708,6 +1848,7 @@ route('/calc', async () => {
       zeroDistance: d.zeroDistance, targetDistance: Math.max(...distances, 1000),
       tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity,
       windSpeed: d.windSpeed, windAngle_deg: d.windAngle_deg, shotAngle_deg: d.shotAngle_deg,
+      latitude_deg: d.latitude_deg, azimuth_deg: d.azimuth_deg,
       steps: distances
     };
     const res = Ballistics.solve(input);
