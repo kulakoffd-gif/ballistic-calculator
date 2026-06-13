@@ -2278,6 +2278,271 @@ function renderReticleViewer(reticle, rows) {
   return wrap;
 }
 
+// ============== MOVING TARGET (линейная цель + секундомер + ротор) ==============
+route('/moving-target', async () => {
+  setHeader({ title: 'Движущаяся цель' });
+  const [weapons, cartridges] = await Promise.all([Store.getAll('weapons'), Store.getAll('cartridges')]);
+  const p = loadPrefs();
+  const state = JSON.parse(localStorage.getItem('moving:last') || '{}');
+  state.weaponId    = state.weaponId    ?? p.weaponId    ?? (weapons[0]?.id || '');
+  state.cartridgeId = state.cartridgeId ?? p.cartridgeId ?? (cartridges[0]?.id || '');
+  state.distance_m  = state.distance_m  ?? 300;
+  state.weather     = state.weather     || p.weather || { tempC: 15, pressureMbar: 1013, humidity: 50 };
+  state.mode        = state.mode        || 'linear';   // linear | rotor
+  state.angle_deg   = state.angle_deg   ?? 90;          // угол движения к LOS, 90 = полный фланг
+  // линейная цель
+  state.speedMode   = state.speedMode   || 'mps';       // mps | mils | stopwatch
+  state.speed_mps   = state.speed_mps   ?? 1.4;         // м/с
+  state.speed_mils  = state.speed_mils  ?? 5;           // mil/сек
+  // ротор
+  state.rpm         = state.rpm         ?? 30;
+  state.radius_m    = state.radius_m    ?? 0.5;
+  state.blades      = state.blades      ?? 4;
+  state.bladeSize_m = state.bladeSize_m ?? 0.1;
+  function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
+
+  // — солвер для TOF —
+  function computeTOF() {
+    const w = weapons.find(x => x.id === state.weaponId);
+    const c = cartridges.find(x => x.id === state.cartridgeId);
+    if (!w || !c) return null;
+    const input = buildSolverInputFor(w, c, [state.distance_m], state.weather);
+    const r = Ballistics.solve(input);
+    return r.rows[0]?.tof_s || null;
+  }
+
+  // — главный layout —
+  const headCard = el('div', { class: 'card' });
+  const modeCard = el('div', { class: 'card' });
+  const resultCard = el('div', { class: 'card' });
+  view.appendChild(headCard);
+  view.appendChild(modeCard);
+  view.appendChild(resultCard);
+
+  function render() {
+    // --- профили + дистанция ---
+    headCard.innerHTML = '';
+    headCard.appendChild(el('h2', {}, 'Параметры выстрела'));
+    headCard.appendChild(selectInput('weaponId', 'Оружие', state.weaponId,
+      [{ value: '', label: '—' }, ...weapons.map(w => ({ value: w.id, label: w.name }))]));
+    headCard.appendChild(selectInput('cartridgeId', 'Патрон', state.cartridgeId,
+      [{ value: '', label: '—' }, ...cartridges.map(c => ({ value: c.id, label: c.name }))]));
+    const distInp = numInput('distance_m', 'Дистанция, м', state.distance_m);
+    headCard.appendChild(distInp);
+    headCard.addEventListener('change', () => {
+      const d = readForm(headCard);
+      state.weaponId = d.weaponId; state.cartridgeId = d.cartridgeId;
+      state.distance_m = d.distance_m;
+      save();
+    });
+    headCard.addEventListener('input', () => {
+      const d = readForm(headCard);
+      state.distance_m = d.distance_m;
+      // только дистанция дёргает мгновенно, чтобы не перерисовывать всё на каждый клик
+      localStorage.setItem('moving:last', JSON.stringify(state));
+      flashZeroReminder(state.distance_m);
+      renderResult();
+    });
+
+    // --- режим ---
+    modeCard.innerHTML = '';
+    const tabs = el('div', { class: 'chips' });
+    for (const [v, lbl] of [['linear','Линейная цель'],['rotor','Ротор']]) {
+      tabs.appendChild(el('div', { class: 'chip' + (state.mode === v ? ' active' : ''),
+        onclick: () => { state.mode = v; save(); } }, lbl));
+    }
+    modeCard.appendChild(tabs);
+
+    if (state.mode === 'linear') renderLinear();
+    else renderRotor();
+    renderResult();
+  }
+
+  // ───────── ЛИНЕЙНАЯ ─────────
+  function renderLinear() {
+    modeCard.appendChild(el('h2', { style: 'margin-top:14px' }, 'Скорость цели'));
+    const speedTabs = el('div', { class: 'chips' });
+    for (const [v, lbl] of [['mps','м/с'],['mils','mil/сек'],['stopwatch','Секундомер']]) {
+      speedTabs.appendChild(el('div', { class: 'chip' + (state.speedMode === v ? ' active' : ''),
+        onclick: () => { state.speedMode = v; save(); } }, lbl));
+    }
+    modeCard.appendChild(speedTabs);
+
+    if (state.speedMode === 'mps') {
+      const presets = el('div', { class: 'chips' });
+      for (const [lbl, v] of [['пешеход 1.4', 1.4], ['бег 3.5', 3.5], ['вело 6', 6], ['авто 14', 14]]) {
+        presets.appendChild(el('div', { class: 'chip', onclick: () => { state.speed_mps = v; save(); }}, lbl));
+      }
+      modeCard.appendChild(presets);
+      const inp = el('input', { type: 'number', step: '0.1', value: state.speed_mps,
+        oninput: e => { state.speed_mps = parseFloat(e.target.value) || 0; renderResult(); } });
+      modeCard.appendChild(inp);
+    } else if (state.speedMode === 'mils') {
+      const inp = el('input', { type: 'number', step: '0.1', value: state.speed_mils,
+        oninput: e => { state.speed_mils = parseFloat(e.target.value) || 0; renderResult(); } });
+      modeCard.appendChild(el('label', {}, 'Угловая скорость по сетке, mil/сек'));
+      modeCard.appendChild(inp);
+      modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
+        `На ${state.distance_m} м это ${fmt(state.speed_mils * state.distance_m / 1000, 1)} м/с`));
+    } else {
+      // секундомер
+      modeCard.appendChild(el('div', { class: 'banner' },
+        'Засекай: сколько миллирадиан (mil) сетки прошла цель за время Т. Например, цель прошла 5 mil за 1.3 секунды → 3.85 mil/сек.'));
+      modeCard.appendChild(el('label', {}, 'Пройденное расстояние, mil'));
+      const distMil = el('input', { type: 'number', step: '0.5', value: state.swDistMil ?? 5,
+        oninput: e => { state.swDistMil = parseFloat(e.target.value) || 0; renderSWResult(); } });
+      modeCard.appendChild(distMil);
+
+      const time = el('div', { class: 'big-num', id: 'sw-time' }, '0.00', el('span', { class: 'unit' }, 'с'));
+      modeCard.appendChild(time);
+      const speedOut = el('div', { class: 'big-cap', id: 'sw-speed' }, '— mil/сек');
+      modeCard.appendChild(speedOut);
+
+      let timer = null, t0 = 0, accum = 0;
+      const btnStart = el('button', { type: 'button', class: 'btn', onclick: () => {
+        if (timer) {
+          clearInterval(timer); timer = null;
+          accum += (performance.now() - t0) / 1000;
+          btnStart.textContent = 'Старт';
+          state.swElapsed = accum;
+          renderSWResult();
+        } else {
+          t0 = performance.now();
+          btnStart.textContent = 'Стоп';
+          timer = setInterval(() => {
+            const t = accum + (performance.now() - t0) / 1000;
+            time.firstChild.nodeValue = t.toFixed(2);
+          }, 50);
+        }
+      }}, 'Старт');
+      modeCard.appendChild(btnStart);
+      modeCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+        if (timer) { clearInterval(timer); timer = null; }
+        accum = 0; state.swElapsed = 0;
+        time.firstChild.nodeValue = '0.00';
+        btnStart.textContent = 'Старт';
+        renderSWResult();
+      }}, 'Сброс'));
+
+      function renderSWResult() {
+        const T = state.swElapsed || 0;
+        const N = state.swDistMil || 0;
+        if (T > 0 && N > 0) {
+          state.speed_mils = N / T;
+          speedOut.textContent = `${(N/T).toFixed(2)} mil/сек · ${(N * state.distance_m / 1000 / T).toFixed(1)} м/с на ${state.distance_m}м`;
+        } else {
+          speedOut.textContent = '— mil/сек';
+        }
+        renderResult();
+      }
+      renderSWResult();
+    }
+
+    // — угол движения —
+    modeCard.appendChild(el('hr'));
+    modeCard.appendChild(el('label', {}, 'Угол движения относительно линии прицеливания'));
+    const angChips = el('div', { class: 'chips' });
+    for (const [a, lbl] of [[0,'0° на тебя'],[30,'30°'],[45,'45°'],[60,'60°'],[90,'90° полный фланг']]) {
+      angChips.appendChild(el('div', { class: 'chip' + (state.angle_deg === a ? ' active' : ''),
+        onclick: () => { state.angle_deg = a; save(); }}, lbl));
+    }
+    modeCard.appendChild(angChips);
+    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
+      'Угол 0° — цель идёт прямо на стрелка/от стрелка (lead не нужен). 90° — полный фланг (максимальный lead).'));
+  }
+
+  // ───────── РОТОР ─────────
+  function renderRotor() {
+    modeCard.appendChild(el('h2', { style: 'margin-top:14px' }, 'Параметры ротора'));
+    modeCard.appendChild(el('div', { class: 'banner' },
+      'Поражение лопастей вращающейся мишени (например, ротор-таргет на PRS). Расчёт даёт линейную скорость кончика лопасти, lead на «3 часах» и временное окно поражения.'));
+    modeCard.appendChild(el('div', { class: 'row' },
+      numInput('rpm', 'Обороты, RPM', state.rpm),
+      numInput('radius_m', 'Радиус, м', state.radius_m, { step: '0.05' })
+    ));
+    modeCard.appendChild(el('div', { class: 'row' },
+      numInput('blades', 'Кол-во лопастей', state.blades),
+      numInput('bladeSize_m', 'Размер лопасти, м', state.bladeSize_m, { step: '0.01' })
+    ));
+    modeCard.addEventListener('input', () => {
+      const d = readForm(modeCard);
+      Object.assign(state, {
+        rpm: d.rpm, radius_m: d.radius_m, blades: d.blades, bladeSize_m: d.bladeSize_m
+      });
+      localStorage.setItem('moving:last', JSON.stringify(state));
+      renderResult();
+    });
+  }
+
+  // ───────── РЕЗУЛЬТАТ ─────────
+  function renderResult() {
+    resultCard.innerHTML = '';
+    const tof = computeTOF();
+    if (!tof) {
+      resultCard.appendChild(el('div', { class: 'banner' }, 'Выбери оружие и патрон.'));
+      return;
+    }
+    resultCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'Время полёта пули'), el('div', { class: 'v' }, fmt(tof, 2) + ' с'),
+      el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
+    ));
+
+    if (state.mode === 'linear') {
+      let vmps = 0;
+      if (state.speedMode === 'mps') vmps = state.speed_mps || 0;
+      else vmps = (state.speed_mils || 0) * state.distance_m / 1000;
+      const v_perp = vmps * Math.sin(state.angle_deg * Math.PI / 180);
+      const lead_m = v_perp * tof;
+      const lead_mil = state.distance_m > 0 ? (lead_m / state.distance_m) * 1000 : 0;
+      const lead_moa = lead_mil * 3.438;
+      resultCard.appendChild(el('hr'));
+      resultCard.appendChild(el('div', { class: 'info-card' },
+        el('div', { class: 'label' }, 'Lead (упреждение)'),
+        el('div', { class: 'clock-display' }, fmt(lead_mil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
+        el('div', { class: 'muted center' }, `${fmt(lead_moa, 1)} MOA · ${fmt(lead_m, 2)} м впереди цели`)
+      ));
+      resultCard.appendChild(el('div', { class: 'kv' },
+        el('div', { class: 'k' }, 'Скорость цели'), el('div', { class: 'v' }, fmt(vmps, 2) + ' м/с'),
+        el('div', { class: 'k' }, 'Перпендикулярная'), el('div', { class: 'v' }, fmt(v_perp, 2) + ' м/с'),
+        el('div', { class: 'k' }, 'Угол к LOS'), el('div', { class: 'v' }, state.angle_deg + '°')
+      ));
+      resultCard.appendChild(el('div', { class: 'banner accent' },
+        `Прицеливайся ${fmt(Math.abs(lead_mil), 2)} mil ${lead_mil >= 0 ? 'вперёд по направлению движения' : 'назад'} от цели. Удерживай при стрельбе (sustained lead) или стреляй когда цель «догонит» отметку (trapping).`));
+    } else {
+      // ротор
+      const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
+      const v_tan = omega * state.radius_m; // м/с по кончику
+      const lead_m = v_tan * tof;
+      const lead_mil = state.distance_m > 0 ? (lead_m / state.distance_m) * 1000 : 0;
+      const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
+      const periodSec = state.rpm > 0 ? 60 / state.rpm : 0;
+      const bladePassesPerSec = state.blades * (state.rpm / 60);
+
+      resultCard.appendChild(el('hr'));
+      resultCard.appendChild(el('div', { class: 'info-card' },
+        el('div', { class: 'label' }, 'Lead для лопасти на 3 ч.'),
+        el('div', { class: 'clock-display' }, fmt(lead_mil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
+        el('div', { class: 'muted center' }, `касательная скорость ${fmt(v_tan, 1)} м/с`)
+      ));
+      resultCard.appendChild(el('div', { class: 'kv' },
+        el('div', { class: 'k' }, 'Период оборота'), el('div', { class: 'v' }, fmt(periodSec, 2) + ' с'),
+        el('div', { class: 'k' }, 'Лопастей в секунду'), el('div', { class: 'v' }, fmt(bladePassesPerSec, 1)),
+        el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec * 1000, 0) + ' мс'),
+        el('div', { class: 'k' }, 'TOF / окно'), el('div', { class: 'v' }, fmt(tof / Math.max(windowSec, 0.001), 1) + '×')
+      ));
+      const hard = tof > windowSec * 3;
+      resultCard.appendChild(el('div', { class: hard ? 'banner accent' : 'banner', style: hard ? '' : 'border-color:var(--good-dim)' },
+        hard
+          ? `Окно поражения короче TOF в ${fmt(tof/windowSec, 0)} раз — нужен sustained lead и точный тайминг. Стреляй в момент, когда лопасть ещё не дошла до 3 ч., на ${fmt(lead_mil, 1)} mil вперёд.`
+          : `Окно ≈${fmt(windowSec*1000, 0)} мс — лопасть «видна» в зоне прицеливания дольше TOF. Стандартная техника: целишься в 3 ч., стреляешь когда лопасть подходит к зоне.`));
+      resultCard.appendChild(el('div', { class: 'banner' },
+        'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
+    }
+  }
+
+  render();
+});
+
 // ============== MIL-RANGING TOOL ==============
 route('/mil-ranging', async () => {
   setHeader({ title: 'Мил-рейнджинг' });
