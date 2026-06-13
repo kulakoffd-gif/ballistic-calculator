@@ -314,7 +314,7 @@ function setHudOn(on) {
 if (isHudOn()) document.body.classList.add('hud-mode');
 
 // ============== Сдвиг от базового патрона (rezeroed?) ==============
-// Сохраняем выбор в sessionStorage по cartridgeId. true=прицел перенулирован.
+// Сохраняем выбор в sessionStorage по cartridgeId. true = прицел обнулён под этот патрон.
 function getScopeMode(cartId) {
   if (!cartId) return null;
   const v = sessionStorage.getItem('scope:' + cartId);
@@ -324,28 +324,28 @@ function setScopeMode(cartId, rezeroed) {
   if (!cartId) return;
   sessionStorage.setItem('scope:' + cartId, rezeroed ? '1' : '0');
 }
-// Возвращает Promise<boolean>: true если прицел перенулирован под этот патрон.
+// Возвращает Promise<boolean>: true если прицел обнулён под этот патрон.
 // Если выбор не сделан — открывает диалог. Базовый патрон → всегда true.
 async function ensureScopeChoice(cart) {
   if (!cart || cart.isBase) return true;
-  // нет сдвига — нечего применять, считай как «перенулирован»
+  // нет сдвига — нечего применять, считай как «обнулён»
   if (!cart.offsetVertMil && !cart.offsetHorizMil && !cart.baseCartridgeId) return true;
   const prior = getScopeMode(cart.id);
   if (prior != null) return prior;
   return new Promise(resolve => {
     openSheet((sheet, close) => {
-      sheet.appendChild(el('h3', {}, 'Прицел перенулирован?'));
+      sheet.appendChild(el('h3', {}, 'Прицел обнулён под этот патрон?'));
       sheet.appendChild(el('div', { class: 'sub' }, `Патрон: ${cart.name}`));
       sheet.appendChild(el('div', { class: 'banner accent' },
         `Сдвиг от базового: вертикаль ${fmt(cart.offsetVertMil || 0, 2)} mil, ` +
-        `горизонталь ${fmt(cart.offsetHorizMil || 0, 2)} mil. Этот сдвиг будет автоматически добавлен к поправкам, если прицел НЕ перенулирован под этот патрон.`));
+        `горизонталь ${fmt(cart.offsetHorizMil || 0, 2)} mil. Этот сдвиг будет автоматически добавлен к поправкам, если прицел НЕ обнулён под этот патрон.`));
       sheet.appendChild(el('div', { class: 'row-btn' },
         el('button', { type: 'button', class: 'btn ghost', onclick: () => {
           setScopeMode(cart.id, false); close(); resolve(false);
         }}, 'Нет, стреляю с базы'),
         el('button', { type: 'button', class: 'btn', onclick: () => {
           setScopeMode(cart.id, true); close(); resolve(true);
-        }}, 'Да, перенулирован')
+        }}, 'Да, обнулён')
       ));
     });
   });
@@ -1806,7 +1806,7 @@ route('/cartridge/:id', async ({ id }) => {
   f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Базовый патрон и сдвиг'));
   f.appendChild(el('div', { class: 'banner' },
-    'Базовый патрон — тот, под который пристрелян прицел. Для остальных укажи фактический сдвиг от базового нуля. При расчёте приложение спросит: «Прицел перенулирован?» — если нет, добавит этот сдвиг к поправкам.'));
+    'Базовый патрон — тот, под который пристрелян прицел. Для остальных укажи фактический сдвиг от базового нуля. При расчёте приложение спросит: «Прицел обнулён?» — если нет, добавит этот сдвиг к поправкам.'));
   f.appendChild(el('label', { class: 'checkbox' },
     el('input', { type: 'checkbox', name: 'isBase', checked: c.isBase ? true : undefined }),
     el('span', { class: 'lbl' }, 'Это базовый патрон',
