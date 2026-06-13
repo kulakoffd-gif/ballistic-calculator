@@ -263,15 +263,109 @@ async function getPressureFromDevice() {
   return { source: 'gps', altitude: pos.coords.altitude, pressureMbar: pressureFromAltitude(pos.coords.altitude) };
 }
 function attachAtmoButtons(form, pressureField) {
-  const btn = el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:6px', onclick: async () => {
+  const wrap = el('div', { style: 'display:flex;gap:6px;margin-top:6px' });
+  wrap.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0;flex:1', onclick: async () => {
     try {
       const r = await getPressureFromDevice();
       const mbar = typeof r === 'number' ? r : r.pressureMbar;
       form[pressureField].value = mbar.toFixed(0);
       toast(typeof r === 'number' ? 'Барометр' : `GPS h=${r.altitude.toFixed(0)}м → ${mbar.toFixed(0)} гПа`);
     } catch (e) { toast('Не удалось: ' + e.message); }
-  }}, '📡 Барометр / GPS-высота');
-  return btn;
+  }}, '📡 Барометр / GPS-высота'));
+  wrap.appendChild(el('button', { type: 'button', class: 'btn outline', style: 'margin:0;flex:1', onclick: async () => {
+    try {
+      const w = await Weather.fetchByGPS();
+      if (form.tempC) form.tempC.value = w.tempC.toFixed(1);
+      if (form.pressureMbar) form.pressureMbar.value = w.pressureMbar.toFixed(0);
+      if (form.humidity) form.humidity.value = w.humidity.toFixed(0);
+      if (form.windSpeed) form.windSpeed.value = w.windSpeed.toFixed(1);
+      // событие input на каждом поле — чтобы реактивный код подхватил изменения
+      ['tempC','pressureMbar','humidity','windSpeed'].forEach(n => {
+        if (form[n]) form[n].dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      toast(`Open-Meteo: ${w.tempC.toFixed(1)}°C · ${w.pressureMbar.toFixed(0)} гПа · ${w.humidity.toFixed(0)}% · ветер ${w.windSpeed.toFixed(1)} м/с`);
+    } catch (e) { toast('Open-Meteo: ' + e.message); }
+  }}, '🌐 Погода по GPS'));
+  return wrap;
+}
+
+// ============== ОБНУЛИ БАРАБАНЧИКИ flash ==============
+function isZeroReminderOn() {
+  const v = localStorage.getItem('zeroReminder');
+  return v == null ? true : v === '1'; // вкл по умолчанию
+}
+function setZeroReminderOn(on) { localStorage.setItem('zeroReminder', on ? '1' : '0'); }
+let _lastDistShown = null;
+function flashZeroReminder(newDistance) {
+  if (!isZeroReminderOn()) return;
+  if (_lastDistShown != null && _lastDistShown === newDistance) return;
+  _lastDistShown = newDistance;
+  const f = el('div', { class: 'zero-flash' }, 'ОБНУЛИ БАРАБАНЧИКИ');
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 700);
+}
+
+// ============== HUD mode ==============
+function isHudOn() { return localStorage.getItem('hudMode') === '1'; }
+function setHudOn(on) {
+  localStorage.setItem('hudMode', on ? '1' : '0');
+  document.body.classList.toggle('hud-mode', on);
+}
+if (isHudOn()) document.body.classList.add('hud-mode');
+
+// ============== Сдвиг от базового патрона (rezeroed?) ==============
+// Сохраняем выбор в sessionStorage по cartridgeId. true=прицел перенулирован.
+function getScopeMode(cartId) {
+  if (!cartId) return null;
+  const v = sessionStorage.getItem('scope:' + cartId);
+  return v == null ? null : v === '1';
+}
+function setScopeMode(cartId, rezeroed) {
+  if (!cartId) return;
+  sessionStorage.setItem('scope:' + cartId, rezeroed ? '1' : '0');
+}
+// Возвращает Promise<boolean>: true если прицел перенулирован под этот патрон.
+// Если выбор не сделан — открывает диалог. Базовый патрон → всегда true.
+async function ensureScopeChoice(cart) {
+  if (!cart || cart.isBase) return true;
+  // нет сдвига — нечего применять, считай как «перенулирован»
+  if (!cart.offsetVertMil && !cart.offsetHorizMil && !cart.baseCartridgeId) return true;
+  const prior = getScopeMode(cart.id);
+  if (prior != null) return prior;
+  return new Promise(resolve => {
+    openSheet((sheet, close) => {
+      sheet.appendChild(el('h3', {}, 'Прицел перенулирован?'));
+      sheet.appendChild(el('div', { class: 'sub' }, `Патрон: ${cart.name}`));
+      sheet.appendChild(el('div', { class: 'banner accent' },
+        `Сдвиг от базового: вертикаль ${fmt(cart.offsetVertMil || 0, 2)} mil, ` +
+        `горизонталь ${fmt(cart.offsetHorizMil || 0, 2)} mil. Этот сдвиг будет автоматически добавлен к поправкам, если прицел НЕ перенулирован под этот патрон.`));
+      sheet.appendChild(el('div', { class: 'row-btn' },
+        el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+          setScopeMode(cart.id, false); close(); resolve(false);
+        }}, 'Нет, стреляю с базы'),
+        el('button', { type: 'button', class: 'btn', onclick: () => {
+          setScopeMode(cart.id, true); close(); resolve(true);
+        }}, 'Да, перенулирован')
+      ));
+    });
+  });
+}
+// Применяет сдвиг к строке таблицы (row) при необходимости.
+// row.drop_mil/drift_mil меняются in-place, плюс пересчитываются *_moa и *_m.
+function applyCartridgeOffset(row, cart, rezeroed) {
+  if (!row || !cart || rezeroed || cart.isBase) return row;
+  const dv = cart.offsetVertMil || 0;
+  const dh = cart.offsetHorizMil || 0;
+  if (!dv && !dh) return row;
+  // offsetVertMil положителен = пуля выше → нужно МЕНЬШЕ подкручивать вверх.
+  // drop_mil положителен = подкрутка вверх. Значит вычитаем.
+  row.drop_mil  = (row.drop_mil  || 0) - dv;
+  row.drift_mil = (row.drift_mil || 0) - dh;
+  row.drop_moa  = row.drop_mil  * 3.438;
+  row.drift_moa = row.drift_mil * 3.438;
+  row.drop_m  = row.range > 0 ? -row.drop_mil  / 1000 * row.range : 0;
+  row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
+  return row;
 }
 
 // ============== compass helper ==============
@@ -1563,14 +1657,15 @@ route('/calc', async () => {
     }
   });
 
-  form.addEventListener('submit', e => {
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     const d = readForm(form);
     localStorage.setItem('calc:last', JSON.stringify(d));
     const distances = (d.distances || '').split(/[,\s]+/).map(s=>parseFloat(s)).filter(x=>x>0);
-    // если выбран профиль патрона, берём custom drag и truedBC оттуда
+    flashZeroReminder(distances.join('|'));
     const c = cartridges.find(x => x.id === d.cartridgeId);
     const w = weapons.find(x => x.id === d.weaponId);
+    const rezeroed = c ? await ensureScopeChoice(c) : true;
     const input = {
       bc: d.bc, dragModel: (c && effectiveDragModel(c) === 'CUSTOM') ? 'CUSTOM' : d.dragModel,
       customDrag: c?.customDrag || null,
@@ -1590,22 +1685,32 @@ route('/calc', async () => {
     const out = $('#result', form);
     out.innerHTML = '';
     out.appendChild(el('hr'));
+    // плашка о применённом сдвиге, если есть
+    if (c && !c.isBase && !rezeroed && (c.offsetVertMil || c.offsetHorizMil)) {
+      out.appendChild(el('div', { class: 'info-card' },
+        el('div', { class: 'label' }, 'Прицел нулями базового патрона'),
+        el('div', { class: 'muted center' },
+          `К поправкам добавлен сдвиг: V ${fmt(-(c.offsetVertMil||0),2)} mil, H ${fmt(-(c.offsetHorizMil||0),2)} mil`)));
+    }
+    const DA_ft = Ballistics.densityAltitude_ft({tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity});
     out.appendChild(el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'Плотность воздуха'), el('div', { class: 'v' }, fmt(res.airDensity,3) + ' кг/м³'),
+      el('div', { class: 'k' }, 'Density Altitude'), el('div', { class: 'v' }, fmt(DA_ft,0) + ' ft'),
       el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, fmt(res.speedOfSound,1) + ' м/с'),
       el('div', { class: 'k' }, 'Угол бросания'), el('div', { class: 'v' }, fmt(res.launchAngle_deg,3) + '°')
     ));
     const t = el('table', { class: 'table' });
     t.appendChild(h(`<thead><tr><th>Дист.</th><th>Верт. mil</th><th>MOA</th><th>Гор. mil</th><th>V, м/с</th><th>t, с</th></tr></thead>`));
     const tb = el('tbody');
-    for (const r of res.rows) {
+    for (const row of res.rows) {
+      if (c) applyCartridgeOffset(row, c, rezeroed);
       tb.appendChild(h(`<tr>
-        <td>${r.range}</td>
-        <td class="accent">${fmt(r.drop_mil,2)}</td>
-        <td>${fmt(r.drop_moa,1)}</td>
-        <td class="accent">${fmt(r.drift_mil,2)}</td>
-        <td>${fmt(r.vel_mps,0)}</td>
-        <td>${fmt(r.tof_s,2)}</td>
+        <td>${row.range}</td>
+        <td class="accent">${fmt(row.drop_mil,2)}</td>
+        <td>${fmt(row.drop_moa,1)}</td>
+        <td class="accent">${fmt(row.drift_mil,2)}</td>
+        <td>${fmt(row.vel_mps,0)}</td>
+        <td>${fmt(row.tof_s,2)}</td>
       </tr>`));
     }
     t.appendChild(tb);
@@ -1681,6 +1786,7 @@ route('/cartridge/:id', async ({ id }) => {
   const c = isNew ? { id: Store.uid(), dragModel: 'G1' } : await Store.get('cartridges', id);
   if (!c) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
   setHeader({ title: isNew ? 'Новый патрон' : (c.name || 'Патрон') });
+  const allCartridges = await Store.getAll('cartridges');
   const f = el('form', { class: 'card' });
   f.appendChild(textInput('name', 'Название', c.name, { required: true }));
   f.appendChild(el('div', { class: 'row' },
@@ -1694,6 +1800,25 @@ route('/cartridge/:id', async ({ id }) => {
   f.appendChild(el('div', { class: 'row' },
     numInput('bulletLength_in', 'Длина пули, in', c.bulletLength_in),
     numInput('caliber_in', 'Калибр, in', c.caliber_in)
+  ));
+
+  // — Базовый патрон и сдвиг —
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Базовый патрон и сдвиг'));
+  f.appendChild(el('div', { class: 'banner' },
+    'Базовый патрон — тот, под который пристрелян прицел. Для остальных укажи фактический сдвиг от базового нуля. При расчёте приложение спросит: «Прицел перенулирован?» — если нет, добавит этот сдвиг к поправкам.'));
+  f.appendChild(el('label', { class: 'checkbox' },
+    el('input', { type: 'checkbox', name: 'isBase', checked: c.isBase ? true : undefined }),
+    el('span', { class: 'lbl' }, 'Это базовый патрон',
+      el('span', { class: 'sub' }, 'Прицел пристрелян именно под него'))
+  ));
+  const others = allCartridges.filter(x => x.id !== c.id);
+  f.appendChild(selectInput('baseCartridgeId', 'Сдвиг отсчитывается от', c.baseCartridgeId || '',
+    [{ value: '', label: '— нет, этот патрон базовый —' },
+     ...others.map(x => ({ value: x.id, label: x.name + (x.isBase ? ' (базовый)' : '') }))]));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('offsetVertMil', 'Сдвиг по вертикали, mil (+вверх)', c.offsetVertMil ?? 0, { step: '0.05' }),
+    numInput('offsetHorizMil', 'Сдвиг по горизонтали, mil (+вправо)', c.offsetHorizMil ?? 0, { step: '0.05' })
   ));
 
   // — Powder temperature sensitivity —
@@ -1773,12 +1898,23 @@ route('/cartridge/:id', async ({ id }) => {
   f.addEventListener('submit', async e => {
     e.preventDefault();
     const d = readForm(f);
-    // парсим custom drag
     const cdm = (d.customDragText || '').split('\n')
       .map(s => s.trim()).filter(Boolean)
       .map(s => s.split(/[,\s]+/).map(x => parseFloat(x)))
       .filter(p => p.length === 2 && isFinite(p[0]) && isFinite(p[1]));
     delete d.customDragText;
+    // базовый патрон — взаимоисключающие условия
+    if (d.isBase) {
+      d.baseCartridgeId = null;
+      d.offsetVertMil = 0;
+      d.offsetHorizMil = 0;
+      // снять флаг с других патронов
+      for (const x of allCartridges) {
+        if (x.id !== c.id && x.isBase) {
+          await Store.put('cartridges', { ...x, isBase: false });
+        }
+      }
+    }
     await Store.put('cartridges', { ...c, ...d, customDrag: cdm.length >= 2 ? cdm : null });
     toast('Сохранено'); location.hash = '#/cartridges';
   });
@@ -1861,9 +1997,110 @@ function openTruingSheet(cart) {
   });
 }
 
+// ============== MIL-RANGING TOOL ==============
+route('/mil-ranging', async () => {
+  setHeader({ title: 'Мил-рейнджинг' });
+  view.appendChild(el('div', { class: 'card' },
+    el('h2', {}, 'Дистанция по известному размеру цели'),
+    el('div', { class: 'banner' },
+      'Формула: дистанция = (размер цели, м × 1000) ÷ наблюдаемые mils. Удобно когда нет дальномера.')));
+
+  const state = JSON.parse(localStorage.getItem('milRange') || '{}');
+  const form = el('form', { class: 'card' });
+  form.appendChild(el('label', {}, 'Высота/ширина цели (м)'));
+  const presetChips = el('div', { class: 'chips' });
+  for (const [lbl, v] of [['Ростовая 1.7', 1.7], ['Поясная 1.0', 1.0], ['ИПСК 0.5', 0.5], ['Голова 0.25', 0.25]]) {
+    presetChips.appendChild(el('div', { class: 'chip', onclick: () => {
+      form.targetSize.value = v; form.dispatchEvent(new Event('input', { bubbles: true }));
+    }}, lbl));
+  }
+  form.appendChild(presetChips);
+  form.appendChild(el('input', { id: 'targetSize', name: 'targetSize', type: 'number', step: '0.01',
+    value: state.targetSize ?? 1.7, inputmode: 'decimal' }));
+  form.appendChild(el('div', { class: 'row' },
+    numInput('observedMils', 'Наблюдаемые mils', state.observedMils),
+    numInput('observedMOA', 'либо MOA', state.observedMOA)
+  ));
+  const out = el('div', { class: 'info-card' });
+  form.appendChild(out);
+
+  function recalc() {
+    const d = readForm(form);
+    const sz = d.targetSize;
+    let mils = d.observedMils;
+    if (!mils && d.observedMOA) mils = d.observedMOA / 3.438;
+    if (!sz || !mils || mils <= 0) {
+      out.innerHTML = '';
+      out.appendChild(el('div', { class: 'label' }, 'Дистанция'));
+      out.appendChild(el('div', { class: 'big-num' }, '—'));
+      return;
+    }
+    const distM = (sz * 1000) / mils;
+    out.innerHTML = '';
+    out.appendChild(el('div', { class: 'label' }, 'Дистанция'));
+    out.appendChild(el('div', { class: 'big-num' }, fmt(distM, 0), el('span', { class: 'unit' }, 'м')));
+    out.appendChild(el('div', { class: 'muted center' },
+      `${fmt(distM * 1.0936, 0)} ярдов · ${fmt(sz, 2)} м / ${fmt(mils, 2)} mil`));
+    localStorage.setItem('milRange', JSON.stringify(d));
+  }
+  form.addEventListener('input', recalc);
+  recalc();
+  view.appendChild(form);
+
+  // обратный режим: размер цели + дистанция → ожидаемые mils
+  view.appendChild(el('div', { class: 'card' },
+    el('h2', {}, 'Обратный расчёт'),
+    el('div', { class: 'banner' }, 'Размер цели + дистанция → ожидаемые mils для прицеливания/ранжирования.'),
+    (() => {
+      const f2 = el('form');
+      f2.appendChild(el('div', { class: 'row' },
+        numInput('sz', 'Размер цели, м', null, { step: '0.01' }),
+        numInput('dist', 'Дистанция, м', null)
+      ));
+      const out2 = el('div', { class: 'info-card' });
+      f2.appendChild(out2);
+      f2.addEventListener('input', () => {
+        const d = readForm(f2);
+        if (!d.sz || !d.dist) { out2.innerHTML = ''; return; }
+        const mils = (d.sz * 1000) / d.dist;
+        const moa = mils * 3.438;
+        out2.innerHTML = '';
+        out2.appendChild(el('div', { class: 'label' }, 'Ожидаемые mils'));
+        out2.appendChild(el('div', { class: 'big-num' }, fmt(mils, 2), el('span', { class: 'unit' }, 'mil')));
+        out2.appendChild(el('div', { class: 'muted center' }, fmt(moa, 1) + ' MOA'));
+      });
+      return f2;
+    })()
+  ));
+});
+
 // ============== SETTINGS ==============
 route('/settings', async () => {
   setHeader({ title: 'Настройки' });
+
+  // — настройки приложения —
+  const prefsCard = el('div', { class: 'card' });
+  prefsCard.appendChild(el('h2', {}, 'Предупреждения и режимы'));
+
+  const zr = el('label', { class: 'checkbox', style: 'padding:12px 0' });
+  const zrCb = el('input', { type: 'checkbox' });
+  zrCb.checked = isZeroReminderOn();
+  zrCb.addEventListener('change', () => { setZeroReminderOn(zrCb.checked); toast(zrCb.checked ? 'Напоминание включено' : 'Выключено'); });
+  zr.appendChild(zrCb);
+  zr.appendChild(el('span', { class: 'lbl' }, '«ОБНУЛИ БАРАБАНЧИКИ» при смене дистанции',
+    el('span', { class: 'sub' }, 'Полноэкранный красный flash, чтобы не забыть сбросить барабаны прицела перед накруткой новой поправки')));
+  prefsCard.appendChild(zr);
+
+  const hud = el('label', { class: 'checkbox', style: 'padding:12px 0' });
+  const hudCb = el('input', { type: 'checkbox' });
+  hudCb.checked = isHudOn();
+  hudCb.addEventListener('change', () => { setHudOn(hudCb.checked); toast(hudCb.checked ? 'HUD-режим вкл.' : 'выкл.'); });
+  hud.appendChild(hudCb);
+  hud.appendChild(el('span', { class: 'lbl' }, 'HUD-режим (увеличенный шрифт результатов)',
+    el('span', { class: 'sub' }, 'Для быстрого чтения mil-поправки при ярком солнце')));
+  prefsCard.appendChild(hud);
+
+  view.appendChild(prefsCard);
 
   // — устройства —
   const devicesCard = el('div', { class: 'card' });

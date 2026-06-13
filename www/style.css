@@ -226,6 +226,38 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== ОБНУЛИ БАРАБАНЧИКИ flash ===== */
+.zero-flash {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #c41010; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14vw; font-weight: 900; letter-spacing: 4px;
+  text-align: center; text-transform: uppercase;
+  animation: zeroflash 0.6s ease-out forwards;
+  pointer-events: none;
+  text-shadow: 0 4px 20px #000;
+}
+@keyframes zeroflash {
+  0% { opacity: 0; transform: scale(0.85); }
+  20% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.05); }
+}
+
+/* ===== HUD mode (огромный шрифт результата) ===== */
+.hud-mode .big-num { font-size: 72px !important; }
+.hud-mode .clock-display { font-size: 64px !important; }
+.hud-mode .table { font-size: 22px !important; }
+.hud-mode .table th { font-size: 14px !important; }
+.hud-mode .kv { font-size: 18px !important; }
+
+/* ===== клочные часы (12 секторов компаса для ветра) ===== */
+.wind-clock {
+  width: 84%; max-width: 320px; aspect-ratio: 1;
+  margin: 0 auto; display: block;
+  cursor: pointer; touch-action: none;
+}
+
 /* ===== table ===== */
 .table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .table th, .table td {

@@ -420,4 +420,44 @@ function addTruingPoint(input, observedDropMil, range_m) {
   return { machAt, bcFactor, range_m, observedDropMil };
 }
 
-window.Ballistics = { solve, trueBC, addTruingPoint, airDensity, speedOfSound, pressureFromAltitude: null, millerStability, spinDriftLitz, aeroJumpLitz, interpDrag, G1_TABLE, G7_TABLE };
+// ───────────────────────────── Дополнительные хелперы ─────────────────────────────
+// Density Altitude — высота в стандартной атмосфере (футах), где плотность совпадает с фактической.
+// Стрелки во всём мире обмениваются DA вместо разрозненных T/P/RH.
+function densityAltitude_ft(atm) {
+  const rho = airDensity(atm);
+  const DA_m = 44330.8 * (1 - Math.pow(rho / 1.225, 1 / 4.2559));
+  return DA_m * 3.28084;
+}
+
+// Хронографическая статистика по серии скоростей (м/с).
+function chronoStats(velocities) {
+  const arr = (velocities || []).filter(v => isFinite(v) && v > 0);
+  if (arr.length < 2) return null;
+  const n = arr.length;
+  const avg = arr.reduce((s, v) => s + v, 0) / n;
+  const variance = arr.reduce((s, v) => s + (v - avg) ** 2, 0) / (n - 1);
+  const sd = Math.sqrt(variance);
+  const min = Math.min(...arr), max = Math.max(...arr);
+  return { avg, sd, es: max - min, sdPct: (sd / avg) * 100, n, min, max };
+}
+
+// Кинетическая энергия в Дж / ft·lbf и Taylor KO factor.
+function kineticEnergyJ(massGr, velMps) {
+  const massKg = massGr * 0.00006479891;
+  return 0.5 * massKg * velMps * velMps;
+}
+function kineticEnergyFtLb(massGr, velMps) {
+  return kineticEnergyJ(massGr, velMps) * 0.73756;
+}
+function taylorKO(massGr, velMps, caliberIn) {
+  const velFps = velMps * 3.28084;
+  return (massGr * velFps * (caliberIn || 0)) / 7000;
+}
+
+window.Ballistics = {
+  solve, trueBC, addTruingPoint,
+  airDensity, speedOfSound, densityAltitude_ft,
+  chronoStats, kineticEnergyJ, kineticEnergyFtLb, taylorKO,
+  millerStability, spinDriftLitz, aeroJumpLitz, interpDrag,
+  G1_TABLE, G7_TABLE
+};

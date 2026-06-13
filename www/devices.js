@@ -389,6 +389,43 @@ const CapacitorBT = {
 
 Object.assign(BT, BT.mode === 'native' ? CapacitorBT : WebBT);
 
+// ═════════════════════════════ WEATHER by GPS (Open-Meteo) ═════════════════════════════
+// Бесплатный API без регистрации. Берёт ближайшую метеостанцию + интерполированную модель.
+// Возвращает текущее: tempC, humidity, pressureMbar (станционное), windSpeed (м/с),
+// windDir (в нашу конвенцию "куда дует", не "откуда").
+const Weather = {
+  async fetchByGPS() {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 15000 }));
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    const url = `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
+      `&current=temperature_2m,relative_humidity_2m,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m` +
+      `&wind_speed_unit=ms&timezone=auto`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Open-Meteo вернул ' + r.status);
+    const data = await r.json();
+    const c = data.current;
+    if (!c) throw new Error('Нет текущих данных');
+    // Open-Meteo даёт wind_direction как «откуда дует» (метео-конвенция).
+    // У нас в solver: «куда дует». Переворачиваем на 180°.
+    const windDirTo = ((c.wind_direction_10m + 180) % 360 + 360) % 360;
+    return {
+      lat, lon, altitude_m: pos.coords.altitude,
+      tempC: c.temperature_2m,
+      humidity: c.relative_humidity_2m,
+      pressureMbar: c.surface_pressure,         // станционное (нужно для баллистики)
+      pressureMslMbar: c.pressure_msl,          // приведённое к ур. моря (для справки)
+      windSpeed: c.wind_speed_10m,
+      windDir: windDirTo,
+      sourceTime: c.time,
+      fetchedAt: new Date().toISOString()
+    };
+  }
+};
+
 window.Compass = Compass;
 window.BT = BT;
 window.DeviceProfiles = Profiles;
+window.Weather = Weather;
