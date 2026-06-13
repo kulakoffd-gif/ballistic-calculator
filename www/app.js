@@ -416,6 +416,78 @@ function attachAtmoButtons(form, pressureField) {
   return wrap;
 }
 
+// ============== per-field источники данных (AB Quantum-style) ==============
+// Кэш Open-Meteo на 60 сек, чтобы 4 поля не дёргали API 4 раза.
+let _wxCache = { t: 0, data: null };
+async function getWeatherCached() {
+  if (Date.now() - _wxCache.t < 60000 && _wxCache.data) return _wxCache.data;
+  const w = await Weather.fetchByGPS();
+  _wxCache = { t: Date.now(), data: w };
+  return w;
+}
+function kestrelLast() {
+  const conn = [...BT.connections.values()].find(c => c.profileId === 'kestrel-5700');
+  return conn?.lastData || null;
+}
+
+// Возвращает обычный numInput, но с рядом мини-кнопок источников справа.
+// sources: [{icon, title, action: async () => value, digits}]
+function numInputWithSources(name, label, val, sources, attrs = {}) {
+  const wrap = el('div', {});
+  wrap.appendChild(el('label', { for: name }, label));
+  const row = el('div', { class: 'input-row' });
+  const input = el('input', { id: name, name, type: 'number',
+    step: attrs.step || 'any', inputmode: 'decimal',
+    value: val ?? '', ...attrs });
+  row.appendChild(input);
+  if (sources && sources.length) {
+    const srcEl = el('div', { class: 'sources' });
+    for (const s of sources) {
+      const btn = el('button', { type: 'button', title: s.title, onclick: async () => {
+        try {
+          btn.disabled = true;
+          const v = await s.action();
+          if (v != null && isFinite(v)) {
+            input.value = (s.digits != null) ? Number(v).toFixed(s.digits) : v;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            toast(s.title + ': ' + input.value);
+          } else {
+            toast(s.title + ': нет данных');
+          }
+        } catch (e) { toast(s.title + ': ' + e.message); }
+        finally { btn.disabled = false; }
+      }}, s.icon);
+      srcEl.appendChild(btn);
+    }
+    row.appendChild(srcEl);
+  }
+  wrap.appendChild(row);
+  return wrap;
+}
+
+// фабрики стандартных источников
+function srcOpenMeteo(field, digits = 1) {
+  return { icon: '🌐', title: 'Open-Meteo', digits,
+    action: async () => (await getWeatherCached())[field] };
+}
+function srcKestrel(field, digits = 1) {
+  return { icon: '📡', title: 'Kestrel', digits,
+    action: async () => { const d = kestrelLast(); if (!d) throw new Error('не подключён'); return d[field]; } };
+}
+function srcPhoneBaro() {
+  return { icon: '📱', title: 'Барометр телефона', digits: 0,
+    action: async () => { const r = await getPressureFromDevice(); return typeof r === 'number' ? r : r.pressureMbar; } };
+}
+function srcGPSLat() {
+  return { icon: '📱', title: 'GPS-широта', digits: 3,
+    action: async () => {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
+      return pos.coords.latitude;
+    } };
+}
+
 // ============== ОБНУЛИ БАРАБАНЧИКИ flash ==============
 function isZeroReminderOn() {
   const v = localStorage.getItem('zeroReminder');
@@ -1798,13 +1870,17 @@ route('/calc', async () => {
     numInput('zeroDistance', 'Пристрелка (м)', state.zeroDistance ?? 100)
   ));
   form.appendChild(el('h2', {}, 'Атмосфера'));
+  form.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' },
+    '🌐 = Open-Meteo по GPS · 📱 = датчик телефона · 📡 = Kestrel BT'));
   form.appendChild(el('div', { class: 'row' },
-    numInput('tempC', 'Темп., °C', state.tempC ?? 15),
-    numInput('pressureMbar', 'Давл., гПа', state.pressureMbar ?? 1013)
+    numInputWithSources('tempC', 'Темп., °C', state.tempC ?? 15,
+      [srcOpenMeteo('tempC', 1), srcKestrel('tempC', 1)]),
+    numInputWithSources('pressureMbar', 'Давл., гПа', state.pressureMbar ?? 1013,
+      [srcOpenMeteo('pressureMbar', 0), srcPhoneBaro(), srcKestrel('pressureMbar', 0)])
   ));
-  form.appendChild(attachAtmoButtons(form, 'pressureMbar'));
   form.appendChild(el('div', { class: 'row' },
-    numInput('humidity', 'Влажн., %', state.humidity ?? 50),
+    numInputWithSources('humidity', 'Влажн., %', state.humidity ?? 50,
+      [srcOpenMeteo('humidity', 0), srcKestrel('humidity', 0)]),
     numInput('shotAngle_deg', 'Угол места, °', state.shotAngle_deg ?? 0)
   ));
   form.appendChild(el('div', { class: 'row' },
@@ -1813,24 +1889,19 @@ route('/calc', async () => {
   ));
   form.appendChild(el('h2', {}, 'Ветер'));
   form.appendChild(el('div', { class: 'row' },
-    numInput('windSpeed', 'Скорость, м/с', state.windSpeed ?? 0),
-    numInput('windAngle_deg', 'Угол отн. ствола, °', state.windAngle_deg ?? 90)
+    numInputWithSources('windSpeed', 'Скорость, м/с', state.windSpeed ?? 0,
+      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
+    numInputWithSources('windAngle_deg', 'Угол отн. ствола, °', state.windAngle_deg ?? 90,
+      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
   ));
   form.appendChild(el('h2', {}, 'Кориолис (опц.)'));
   form.appendChild(el('div', { class: 'banner' },
     'Для учёта эффекта Кориолиса заполни широту места выстрела и азимут к цели. Без них Кориолис нулевой.'));
   form.appendChild(el('div', { class: 'row' },
-    numInput('latitude_deg', 'Широта, ° (+ север)', state.latitude_deg ?? 55),
+    numInputWithSources('latitude_deg', 'Широта, ° (+ север)', state.latitude_deg ?? 55,
+      [srcGPSLat()]),
     numInput('azimuth_deg', 'Азимут к цели, °', state.azimuth_deg ?? 0)
   ));
-  form.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:6px',
-    onclick: async () => {
-      try {
-        const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
-        form.latitude_deg.value = pos.coords.latitude.toFixed(3);
-        toast('Широта с GPS');
-      } catch (e) { toast('GPS: ' + e.message); }
-    }}, '📍 Взять широту с GPS'));
   form.appendChild(el('h2', {}, 'Дистанции'));
   form.appendChild(textInput('distances', 'через запятую, м', state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
   form.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Рассчитать'));
