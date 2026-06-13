@@ -3,14 +3,19 @@
 //   positions  — огневые позиции, привязанные к полигону
 //   targets    — каталог целей: дистанция, азимут, имя, привязка к полигону/позиции
 //   weapons    — оружие
-//   cartridges — патроны
+//   cartridges — патроны (включая релоадные с reload-полями)
 //   sessions   — выходы (общий журнал)
 //   hits       — отдельные попадания (для обучения «по истории»)
 //   shots      — расчёты (по одиночной цели/карте) — короткая история
+//   reticles   — библиотека сеток прицелов (фото + калибровка)
+//   bullets    — библиотека пуль (Wave 2)
+//   casePreps  — подготовка гильз (Wave 2)
+//   notes      — универсальные заметки прикреплённые к сущностям (Wave 2)
 
 const DB_NAME = 'skyrange';
-const DB_VER = 2;
-const STORES = ['ranges', 'positions', 'targets', 'weapons', 'cartridges', 'sessions', 'hits', 'shots'];
+const DB_VER = 3;
+const STORES = ['ranges', 'positions', 'targets', 'weapons', 'cartridges', 'sessions', 'hits', 'shots',
+                'reticles', 'bullets', 'casePreps', 'notes'];
 
 function openDB() {
   return new Promise((resolve, reject) => {

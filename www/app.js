@@ -1699,22 +1699,45 @@ route('/calc', async () => {
       el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, fmt(res.speedOfSound,1) + ' м/с'),
       el('div', { class: 'k' }, 'Угол бросания'), el('div', { class: 'v' }, fmt(res.launchAngle_deg,3) + '°')
     ));
-    const t = el('table', { class: 'table' });
-    t.appendChild(h(`<thead><tr><th>Дист.</th><th>Верт. mil</th><th>MOA</th><th>Гор. mil</th><th>V, м/с</th><th>t, с</th></tr></thead>`));
-    const tb = el('tbody');
-    for (const row of res.rows) {
-      if (c) applyCartridgeOffset(row, c, rezeroed);
-      tb.appendChild(h(`<tr>
-        <td>${row.range}</td>
-        <td class="accent">${fmt(row.drop_mil,2)}</td>
-        <td>${fmt(row.drop_moa,1)}</td>
-        <td class="accent">${fmt(row.drift_mil,2)}</td>
-        <td>${fmt(row.vel_mps,0)}</td>
-        <td>${fmt(row.tof_s,2)}</td>
-      </tr>`));
+    // применяем сдвиг ко всем строкам
+    for (const row of res.rows) if (c) applyCartridgeOffset(row, c, rezeroed);
+
+    // — табы «Поправки | Прицел» —
+    const reticle = w?.reticleId ? await Store.get('reticles', w.reticleId) : null;
+    const tabsRow = el('div', { class: 'chips', style: 'margin:10px 0' });
+    const tabBody = el('div');
+    let activeTab = 'table';
+    function renderActive() {
+      tabBody.innerHTML = '';
+      [...tabsRow.children].forEach(ch => ch.classList.toggle('active', ch.dataset.tab === activeTab));
+      if (activeTab === 'table') {
+        const t = el('table', { class: 'table' });
+        t.appendChild(h(`<thead><tr><th>Дист.</th><th>Верт. mil</th><th>MOA</th><th>Гор. mil</th><th>V, м/с</th><th>t, с</th></tr></thead>`));
+        const tb = el('tbody');
+        for (const row of res.rows) {
+          tb.appendChild(h(`<tr>
+            <td>${row.range}</td>
+            <td class="accent">${fmt(row.drop_mil,2)}</td>
+            <td>${fmt(row.drop_moa,1)}</td>
+            <td class="accent">${fmt(row.drift_mil,2)}</td>
+            <td>${fmt(row.vel_mps,0)}</td>
+            <td>${fmt(row.tof_s,2)}</td>
+          </tr>`));
+        }
+        t.appendChild(tb);
+        tabBody.appendChild(el('div', { style: 'overflow-x:auto' }, t));
+      } else {
+        tabBody.appendChild(renderReticleViewer(reticle, res.rows));
+      }
     }
-    t.appendChild(tb);
-    out.appendChild(el('div', { style: 'overflow-x:auto' }, t));
+    const tabT = el('div', { class: 'chip active', 'data-tab': 'table',
+      onclick: () => { activeTab = 'table'; renderActive(); }}, 'Поправки');
+    const tabR = el('div', { class: 'chip', 'data-tab': 'reticle',
+      onclick: () => { activeTab = 'reticle'; renderActive(); }}, 'Прицел');
+    tabsRow.appendChild(tabT); tabsRow.appendChild(tabR);
+    out.appendChild(tabsRow);
+    out.appendChild(tabBody);
+    renderActive();
   });
 
   view.appendChild(form);
@@ -1739,6 +1762,7 @@ route('/weapon/:id', async ({ id }) => {
   const w = isNew ? { id: Store.uid(), sightHeight_mm: 50, zeroDistance: 100 } : await Store.get('weapons', id);
   if (!w) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
   setHeader({ title: isNew ? 'Новое оружие' : (w.name || 'Оружие') });
+  const reticles = await Store.getAll('reticles');
   const f = el('form', { class: 'card' });
   f.appendChild(textInput('name', 'Название', w.name, { required: true }));
   f.appendChild(el('div', { class: 'row' },
@@ -1755,6 +1779,23 @@ route('/weapon/:id', async ({ id }) => {
       [{ value: 'true', label: 'Правое (RH)' }, { value: 'false', label: 'Левое (LH)' }])
   ));
   f.appendChild(numInput('barrelLength_mm', 'Длина ствола, мм', w.barrelLength_mm));
+  // — сетка прицела —
+  f.appendChild(selectInput('reticleId', 'Сетка прицела', w.reticleId || '',
+    [{ value: '', label: '— не выбрана —' }, ...reticles.map(r => ({ value: r.id, label: r.name }))]));
+  if (reticles.length === 0) {
+    f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:-6px' },
+      'Создай сетку в разделе «Сетки прицелов»: загрузи фото своей сетки и откалибруй по двум точкам.'));
+  }
+  // — Cold Bore Adjustment (первый «холодный» выстрел) —
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Cold Bore Adjustment'));
+  f.appendChild(el('div', { class: 'banner' },
+    'Поправка для первого выстрела из холодного ствола. Если знаешь, куда «уходит» первый выстрел — внеси сюда в mil. Будет применяться только к первому расчёту в сессии.'));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('cba_vert_mil', 'Вертикаль, mil (+ вверх)', w.cba_vert_mil ?? 0, { step: '0.05' }),
+    numInput('cba_horiz_mil', 'Горизонталь, mil (+ вправо)', w.cba_horiz_mil ?? 0, { step: '0.05' })
+  ));
+
   f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
   if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
     if (confirm('Удалить?')) { await Store.del('weapons', id); location.hash = '#/weapons'; }
@@ -1995,6 +2036,246 @@ function openTruingSheet(cart) {
       }}, 'Добавить')
     ));
   });
+}
+
+// ============== RETICLES (библиотека сеток прицелов) ==============
+route('/reticles', async () => {
+  setHeader({ title: 'Сетки прицелов' });
+  const items = await Store.getAll('reticles');
+  if (items.length === 0) view.appendChild(el('div', { class: 'banner' },
+    'Загрузи фото сетки своего прицела (или скачай PNG с сайта производителя), потом откалибруй: центр + одна известная метка с её mil-значением. После этого в результате расчёта появится вкладка «Прицел» с точками куда целиться.'));
+  for (const r of items) {
+    view.appendChild(el('a', { class: 'list-item', href: '#/reticle/' + r.id },
+      el('div', { class: 'ttl' }, r.name || 'Без названия'),
+      el('div', { class: 'sub' }, [
+        r.type || 'mil',
+        r.cal ? `калибровка: ${fmt(r.cal.p1_mil_v ?? 0, 1)} mil вниз` : 'без калибровки',
+        r.imageDataUrl ? 'фото есть' : 'без фото'
+      ].filter(Boolean).join(' · '))
+    ));
+  }
+  view.appendChild(el('a', { class: 'fab', href: '#/reticle/new' }, '+'));
+});
+
+route('/reticle/:id', async ({ id }) => {
+  const isNew = id === 'new';
+  const r = isNew ? { id: Store.uid(), type: 'mil', clickValue: 0.1 } : await Store.get('reticles', id);
+  if (!r) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
+  setHeader({ title: isNew ? 'Новая сетка' : (r.name || 'Сетка') });
+
+  const f = el('form', { class: 'card' });
+  f.appendChild(textInput('name', 'Название', r.name, { required: true, placeholder: 'Mil-XT, MOAR, MSR-2, ...' }));
+  f.appendChild(el('div', { class: 'row' },
+    selectInput('type', 'Тип', r.type || 'mil', [{value:'mil',label:'mil/MRAD'},{value:'moa',label:'MOA'}]),
+    numInput('clickValue', 'Цена клика', r.clickValue ?? 0.1, { step: '0.01' })
+  ));
+  f.appendChild(el('label', { class: 'checkbox' },
+    el('input', { type: 'checkbox', name: 'ffp', checked: r.ffp ? true : undefined }),
+    el('span', { class: 'lbl' }, 'FFP (первая фокальная плоскость)',
+      el('span', { class: 'sub' }, 'У SFP-прицелов размер сетки зависит от кратности'))
+  ));
+  view.appendChild(f);
+
+  // --- фото и калибровка ---
+  const photoCard = el('div', { class: 'card' });
+  photoCard.appendChild(el('h2', {}, 'Фото и калибровка'));
+
+  const fileInput = el('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+  photoCard.appendChild(fileInput);
+  photoCard.appendChild(el('button', { type: 'button', class: 'btn ghost',
+    onclick: () => fileInput.click() }, '📷 Загрузить фото сетки'));
+
+  const calStateInfo = el('div', { class: 'banner', style: 'margin-top:8px' },
+    r.imageDataUrl
+      ? (r.cal ? 'Калибровка готова. Можно изменить — тап на центр или ссылочную точку.' : 'Фото загружено. Откалибруй: тапни центр сетки, потом ссылочную метку и введи её mil-значение.')
+      : 'Загрузи фото или PNG сетки.');
+  photoCard.appendChild(calStateInfo);
+
+  const canvas = el('canvas', { style: 'max-width:100%;height:auto;display:block;border:1px solid var(--border);border-radius:8px;background:#000;touch-action:none;cursor:crosshair' });
+  photoCard.appendChild(canvas);
+
+  // mode state
+  let mode = 'center'; // 'center' | 'ref'
+  let img = null;
+  let scale = 1; // отображение → натуральные пиксели
+  // локальные копии калибровки
+  let cal = r.cal ? { ...r.cal } : null;
+
+  const modeRow = el('div', { class: 'chips', style: 'margin-top:8px' },
+    el('div', { class: 'chip active', onclick: () => { mode = 'center'; updateModeChips(); } }, 'Тап центра'),
+    el('div', { class: 'chip', onclick: () => { mode = 'ref'; updateModeChips(); } }, 'Тап ссылочной точки')
+  );
+  photoCard.appendChild(modeRow);
+  function updateModeChips() {
+    [...modeRow.children].forEach((c, i) => c.classList.toggle('active', (i === 0 && mode === 'center') || (i === 1 && mode === 'ref')));
+  }
+
+  const refRow = el('div', { class: 'row', style: 'margin-top:8px' },
+    numInput('refMilV', 'Ссыл. точка — вниз от центра, mil (+)', cal?.p1_mil_v ?? 5, { step: '0.1' }),
+    numInput('refMilH', 'вбок (+ вправо), mil', cal?.p1_mil_h ?? 0, { step: '0.1' })
+  );
+  photoCard.appendChild(refRow);
+
+  function drawCanvas() {
+    if (!img) return;
+    const maxW = Math.min(window.innerWidth - 60, 640);
+    const w = Math.min(img.naturalWidth, maxW);
+    scale = w / img.naturalWidth;
+    canvas.width = w;
+    canvas.height = img.naturalHeight * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    if (cal) {
+      if (cal.p0_x != null) {
+        ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cal.p0_x * scale, cal.p0_y * scale, 12, 0, 2 * Math.PI); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cal.p0_x * scale - 20, cal.p0_y * scale); ctx.lineTo(cal.p0_x * scale + 20, cal.p0_y * scale); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cal.p0_x * scale, cal.p0_y * scale - 20); ctx.lineTo(cal.p0_x * scale, cal.p0_y * scale + 20); ctx.stroke();
+        ctx.fillStyle = '#4ade80'; ctx.font = '12px monospace'; ctx.fillText('центр', cal.p0_x * scale + 16, cal.p0_y * scale - 16);
+      }
+      if (cal.p1_x != null) {
+        ctx.strokeStyle = '#ff8b3d'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cal.p1_x * scale, cal.p1_y * scale, 10, 0, 2 * Math.PI); ctx.stroke();
+        ctx.fillStyle = '#ff8b3d';
+        ctx.fillText(`ref ${fmt(cal.p1_mil_v ?? 0,1)}/${fmt(cal.p1_mil_h ?? 0,1)}`, cal.p1_x * scale + 14, cal.p1_y * scale + 4);
+      }
+    }
+  }
+
+  canvas.addEventListener('click', (e) => {
+    if (!img) return;
+    const rect = canvas.getBoundingClientRect();
+    const x_disp = e.clientX - rect.left;
+    const y_disp = e.clientY - rect.top;
+    const x_nat = x_disp / scale;
+    const y_nat = y_disp / scale;
+    cal = cal || {};
+    if (mode === 'center') {
+      cal.p0_x = x_nat; cal.p0_y = y_nat;
+      mode = 'ref'; updateModeChips();
+      calStateInfo.textContent = 'Центр зафиксирован. Теперь тап на ссылочную точку (например, метку 5 mil под центром).';
+    } else {
+      cal.p1_x = x_nat; cal.p1_y = y_nat;
+      const d = readForm(refRow);
+      cal.p1_mil_v = d.refMilV;
+      cal.p1_mil_h = d.refMilH;
+      calStateInfo.textContent = `Ссылочная точка: (${fmt(x_nat,0)}, ${fmt(y_nat,0)}) px = (${fmt(d.refMilH,1)} mil вбок, ${fmt(d.refMilV,1)} mil вниз).`;
+    }
+    drawCanvas();
+  });
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      r.imageDataUrl = fr.result;
+      img = new Image();
+      img.onload = () => { drawCanvas(); };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+
+  // загрузить уже сохранённое фото
+  if (r.imageDataUrl) {
+    img = new Image();
+    img.onload = () => drawCanvas();
+    img.src = r.imageDataUrl;
+  }
+
+  view.appendChild(photoCard);
+
+  // --- сохранение ---
+  const buttons = el('div', { class: 'card' });
+  buttons.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+    const d = readForm(f);
+    d.ffp = !!d.ffp;
+    // если калибровка содержит обе точки и хотя бы одно mil — сохраняем
+    if (cal && cal.p0_x != null && cal.p1_x != null) {
+      const ref = readForm(refRow);
+      cal.p1_mil_v = ref.refMilV;
+      cal.p1_mil_h = ref.refMilH;
+    }
+    await Store.put('reticles', { ...r, ...d, cal });
+    toast('Сохранено'); location.hash = '#/reticles';
+  }}, 'Сохранить'));
+  if (!isNew) buttons.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
+    if (confirm('Удалить?')) { await Store.del('reticles', id); location.hash = '#/reticles'; }
+  }}, 'Удалить'));
+  view.appendChild(buttons);
+});
+
+// --- хелпер: построить пикс/mil из cal ---
+function reticleScale(cal) {
+  if (!cal || cal.p0_x == null || cal.p1_x == null) return null;
+  const dx = cal.p1_x - cal.p0_x;
+  const dy = cal.p1_y - cal.p0_y;
+  const mh = cal.p1_mil_h || 0;
+  const mv = cal.p1_mil_v || 0;
+  let px_per_mil_h, px_per_mil_v;
+  if (mh !== 0) px_per_mil_h = dx / mh;
+  if (mv !== 0) px_per_mil_v = dy / mv;
+  // если одна ось не задана — берём другую как изотропную
+  if (px_per_mil_h == null && px_per_mil_v != null) px_per_mil_h = Math.abs(px_per_mil_v);
+  if (px_per_mil_v == null && px_per_mil_h != null) px_per_mil_v = Math.abs(px_per_mil_h);
+  if (px_per_mil_h == null || px_per_mil_v == null) return null;
+  return { cx: cal.p0_x, cy: cal.p0_y, hx: px_per_mil_h, vy: px_per_mil_v };
+}
+
+// --- хелпер: отрисовать сетку с метками целей ---
+function renderReticleViewer(reticle, rows) {
+  const wrap = el('div', { class: 'card' });
+  if (!reticle || !reticle.imageDataUrl) {
+    wrap.appendChild(el('div', { class: 'banner' }, 'Нет сетки прицела. Создай в разделе «Сетки прицелов» и привяжи к оружию.'));
+    return wrap;
+  }
+  const sc = reticleScale(reticle.cal);
+  if (!sc) {
+    wrap.appendChild(el('div', { class: 'banner' }, 'Сетка не откалибрована. Открой её в библиотеке и укажи центр + ссылочную точку.'));
+    return wrap;
+  }
+  const canvas = el('canvas', { style: 'max-width:100%;height:auto;display:block;border:1px solid var(--border);border-radius:8px;background:#000' });
+  wrap.appendChild(canvas);
+  const legend = el('div', { class: 'kv', style: 'margin-top:10px;font-size:13px' });
+  wrap.appendChild(legend);
+
+  const img = new Image();
+  img.onload = () => {
+    const maxW = Math.min(window.innerWidth - 60, 640);
+    const w = Math.min(img.naturalWidth, maxW);
+    const scale = w / img.naturalWidth;
+    canvas.width = w; canvas.height = img.naturalHeight * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const colors = ['#4ade80','#ffb072','#ff8b3d','#f87171','#a78bfa','#67e8f9','#fde047','#fb923c','#22d3ee','#f472b6'];
+    legend.innerHTML = '';
+    rows.forEach((row, i) => {
+      // позиция в натуральных пикселях сетки
+      const px = sc.cx + (row.drift_mil || 0) * sc.hx;
+      const py = sc.cy + (row.drop_mil || 0) * sc.vy;
+      const x = px * scale, y = py * scale;
+      // только если в пределах канваса
+      if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return;
+      const color = colors[i % colors.length];
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = 'bold 13px monospace';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+      ctx.strokeText(row.range + 'м', x + 12, y + 4);
+      ctx.fillText(row.range + 'м', x + 12, y + 4);
+      // легенда
+      legend.appendChild(el('div', { class: 'k', style: 'color:' + color }, '● ' + row.range + ' м'));
+      legend.appendChild(el('div', { class: 'v' },
+        `${fmt(row.drop_mil,2)} mil ↓ · ${fmt(row.drift_mil,2)} mil →`));
+    });
+  };
+  img.src = reticle.imageDataUrl;
+  return wrap;
 }
 
 // ============== MIL-RANGING TOOL ==============
