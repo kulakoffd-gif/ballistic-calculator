@@ -2464,10 +2464,41 @@ route('/reticle/:id', async ({ id }) => {
   const photoCard = el('div', { class: 'card' });
   photoCard.appendChild(el('h2', {}, 'Фото и калибровка'));
 
-  const fileInput = el('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+  // file input — НЕ display:none (в Android WebView это иногда блокирует клик).
+  // Скрываем через position:absolute + opacity:0 — клик через label-обёртку работает гарантированно.
+  const fileInput = el('input', { type: 'file', accept: 'image/*',
+    style: 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0' });
   photoCard.appendChild(fileInput);
+
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+  // Кнопка загрузки. На нативе → Capacitor Camera (prompt camera/gallery).
+  // В браузере или fallback → fileInput.click().
+  async function pickPhoto() {
+    if (isNative && window.Capacitor?.Plugins?.Camera) {
+      try {
+        const Cam = window.Capacitor.Plugins.Camera;
+        const photo = await Cam.getPhoto({
+          quality: 90,
+          allowEditing: false,
+          resultType: 'dataUrl',
+          source: 'Prompt',
+          width: 1500
+        });
+        if (photo?.dataUrl) await applyPhoto(photo.dataUrl);
+        else throw new Error('Camera не вернула dataUrl');
+      } catch (e) {
+        toast('Camera: ' + (e?.message || 'отмена'));
+        // fallback на file input
+        fileInput.click();
+      }
+    } else {
+      fileInput.click();
+    }
+  }
+
   photoCard.appendChild(el('button', { type: 'button', class: 'btn ghost',
-    onclick: () => fileInput.click() }, '📷 Загрузить фото сетки'));
+    onclick: pickPhoto }, '📷 Загрузить фото сетки'));
 
   const calStateInfo = el('div', { class: 'banner', style: 'margin-top:8px' },
     r.imageDataUrl
@@ -2549,16 +2580,58 @@ route('/reticle/:id', async ({ id }) => {
     drawCanvas();
   });
 
+  // Применить полученное dataUrl: сжать до 1500px, обновить img + canvas, сохранить в r.
+  async function applyPhoto(dataUrl) {
+    try {
+      toast('Обрабатываю фото…');
+      const resized = await resizeDataUrl(dataUrl, 1500);
+      r.imageDataUrl = resized;
+      img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('img.onerror'));
+        img.src = resized;
+      });
+      drawCanvas();
+      const kb = Math.round(resized.length * 0.75 / 1024);
+      toast(`Загружено: ${img.naturalWidth}×${img.naturalHeight}, ~${kb} КБ`);
+    } catch (e) {
+      toast('Ошибка загрузки фото: ' + e.message);
+    }
+  }
+
+  // Resize dataUrl через canvas (max ширина в px).
+  function resizeDataUrl(dataUrl, maxW) {
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => {
+        try {
+          if (im.naturalWidth <= maxW) { resolve(dataUrl); return; }
+          const w = maxW;
+          const h = Math.round(im.naturalHeight * (w / im.naturalWidth));
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(im, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', 0.85));
+        } catch (e) { reject(e); }
+      };
+      im.onerror = () => reject(new Error('не удалось декодировать картинку'));
+      im.src = dataUrl;
+    });
+  }
+
   fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
-    if (!file) return;
+    if (!file) { toast('Файл не выбран'); return; }
+    if (!file.type.startsWith('image/')) { toast('Не картинка: ' + file.type); return; }
     const fr = new FileReader();
-    fr.onload = () => {
-      r.imageDataUrl = fr.result;
-      img = new Image();
-      img.onload = () => { drawCanvas(); };
-      img.src = fr.result;
+    fr.onload = async () => {
+      try { await applyPhoto(fr.result); }
+      catch (e) { toast('Ошибка: ' + e.message); }
     };
+    fr.onerror = () => toast('FileReader ошибка: ' + (fr.error?.message || 'неизвестно'));
     fr.readAsDataURL(file);
   });
 

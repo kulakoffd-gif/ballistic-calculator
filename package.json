@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",
+    "@capacitor/camera": "^8.2.0",
     "@capacitor/core": "^8.4.0",
+    "@capacitor/filesystem": "^8.0.1",
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor-community/bluetooth-le": "^8.2.0"
