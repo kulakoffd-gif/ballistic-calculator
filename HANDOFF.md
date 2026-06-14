@@ -229,11 +229,11 @@ DB: `skyrange`, version 3. Stores:
 
 ## 12. Что ещё на TODO
 
-### Wave 1c (мелкое незавершённое)
-- ⚠ **W2 (второй ветер)** — инпуты в /calc есть (`windSpeed2`, `windAngle_deg2`), `solveAt(dist, useW2=true)` тоже, но в hero-карточке вывод **второй колонки windage** не дописан. Нужно расширить `mainGrid` и `renderBig()` чтобы показывать обе.
-- **Subtension mode** для reticle viewer (тап на ближайшую mil-риску + подпись «эта риска = 600м»)
-- **Pinch-zoom** для reticle viewer (canvas со scale transform на pinch-жест)
-- **Inclination warning** баннер когда наклон винтовки вне диапазона (Compass.start + порог)
+### Wave 1c (мелкое незавершённое) — ✅ всё сделано
+- ✅ ~~W2 (второй ветер)~~ — HUD рендерит 3-ю колонку «Гор. W2» когда `windSpeed2 > 0` (`renderBig()` + `.main-values.has-w2` CSS)
+- ✅ ~~Subtension mode~~ — тап по сетке прицела → крест + подпись «≈ NNNм» (ищет ближайший row по евклиду drift/drop_mil). Кнопка «✕ метка» сбрасывает.
+- ✅ ~~Pinch-zoom~~ — двумя пальцами pinch с focal point, drag одним пальцем при zoom>1, кнопки `+`/`−`/`1:1` в тулбаре. CSS transform на canvas в overflow:hidden viewport.
+- ✅ ~~Inclination warning~~ — `srcCompass()` для cant_deg + live-баннер в HUD: «⚠ Завал по компасу X° (введено Y°) — тапни чтобы синхронизировать». Пороги: `|cant| > 3°` ИЛИ `|cant - input| > 1°`. Compass.start() запускается пассивно на Android (где нет requestPermission); на iOS — только по кнопке 📐.
 
 ### Wave 2 (релоадинг — пользователь хочет)
 - **Библиотека пуль** + ~30 пресетов (Berger/SMK/Hornady/Lapua) — каркас стора `bullets` уже есть

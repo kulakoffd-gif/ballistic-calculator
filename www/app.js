@@ -487,6 +487,18 @@ function srcGPSLat() {
       return pos.coords.latitude;
     } };
 }
+function srcCompass() {
+  return { icon: '📐', title: 'Завал по компасу', digits: 1,
+    action: async () => {
+      if (!Compass.supported()) throw new Error('нет датчика');
+      if (!Compass.active) await Compass.start();
+      // дать датчику пару тиков
+      await new Promise(r => setTimeout(r, 200));
+      const c = Compass.state.cant;
+      if (c == null || !isFinite(c)) throw new Error('нет данных');
+      return c;
+    } };
+}
 
 // ============== ОБНУЛИ БАРАБАНЧИКИ flash ==============
 function isZeroReminderOn() {
@@ -1907,7 +1919,7 @@ route('/calc', async () => {
     numInput('shotAngle_deg', 'Угол места, °', state.shotAngle_deg ?? 0)
   ));
   secAtmo.appendChild(el('div', { class: 'row' },
-    numInput('cant_deg', 'Завал, °', state.cant_deg ?? 0),
+    numInputWithSources('cant_deg', 'Завал, °', state.cant_deg ?? 0, [srcCompass()]),
     numInput('ammoTempC', 'Темп. боеприп., °C', state.ammoTempC)
   ));
   secAtmo.appendChild(numInputWithSources('latitude_deg', 'Широта (Кориолис), °', state.latitude_deg ?? 55,
@@ -2030,8 +2042,6 @@ route('/calc', async () => {
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
       return row;
     }
-    const hasW2 = (d.windSpeed2 || 0) > 0;
-
     function dirArrow(value, axis) {
       // axis='v': положит. = подкрутить ВВЕРХ → ▲; отриц. = ▼
       // axis='h': положит. = подкрутить ВПРАВО → ►; отриц. = ◄
@@ -2044,8 +2054,12 @@ route('/calc', async () => {
     function renderBig() {
       const row = solveAt(bigDist);
       if (!row) return;
+      const w2Active = (d.windSpeed2 || 0) > 0;
+      const row2 = w2Active ? solveAt(bigDist, true) : null;
       distLabel.textContent = `ДИСТАНЦИЯ ${bigDist} м`;
       mainGrid.innerHTML = '';
+      mainGrid.classList.toggle('has-w2', w2Active);
+
       const dropAxis = el('div', { class: 'axis' });
       dropAxis.appendChild(el('div', { class: 'lbl' }, 'Вертикаль'));
       const dropVal = el('div', { class: 'val' });
@@ -2057,7 +2071,7 @@ route('/calc', async () => {
       mainGrid.appendChild(dropAxis);
 
       const driftAxis = el('div', { class: 'axis' });
-      driftAxis.appendChild(el('div', { class: 'lbl' }, 'Горизонталь'));
+      driftAxis.appendChild(el('div', { class: 'lbl' }, w2Active ? 'Гор. W1' : 'Горизонталь'));
       const drVal = el('div', { class: 'val' });
       drVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drift_mil, 'h')));
       drVal.appendChild(document.createTextNode(fmt(Math.abs(row.drift_mil), 2)));
@@ -2065,6 +2079,18 @@ route('/calc', async () => {
       driftAxis.appendChild(drVal);
       driftAxis.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row.drift_moa), 1)} MOA · ${fmt(Math.abs(row.drift_m) * 100, 0)} см`));
       mainGrid.appendChild(driftAxis);
+
+      if (w2Active && row2) {
+        const driftAxis2 = el('div', { class: 'axis axis-w2' });
+        driftAxis2.appendChild(el('div', { class: 'lbl' }, 'Гор. W2'));
+        const drVal2 = el('div', { class: 'val' });
+        drVal2.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row2.drift_mil, 'h')));
+        drVal2.appendChild(document.createTextNode(fmt(Math.abs(row2.drift_mil), 2)));
+        drVal2.appendChild(el('span', { class: 'unit' }, 'mil'));
+        driftAxis2.appendChild(drVal2);
+        driftAxis2.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row2.drift_moa), 1)} MOA · ${fmt(Math.abs(row2.drift_m) * 100, 0)} см`));
+        mainGrid.appendChild(driftAxis2);
+      }
     }
 
     // — Дистанция: тап → очищается + цифровая клавиатура. Отмена → старое значение —
@@ -2177,10 +2203,51 @@ route('/calc', async () => {
 
   // === HUD area (sticky сверху, всегда видна) ===
   const hudArea = el('div', { class: 'calc-hud-area' });
+  const incBanner = el('button', { type: 'button', class: 'incl-banner', hidden: true });
+  hudArea.appendChild(incBanner);
   hudArea.appendChild(el('div', { id: 'result' }));
   view.appendChild(hudArea);
   view.appendChild(el('div', { class: 'calc-hint' }, '↓ изменяй параметры — пересчёт мгновенный'));
   view.appendChild(form);
+
+  // === Inclination live-warning ===
+  // Подписка на Compass. Если |measured| > 3° или |measured - input| > 1° — баннер.
+  // Tap по баннеру → копируем measured в инпут (live-recalc сработает).
+  const INC_THRESHOLD_ABS = 3;     // ° — «винтовка наклонена»
+  const INC_THRESHOLD_DIFF = 1;    // ° — расхождение с инпутом
+  let lastMeasuredCant = null;
+  function refreshIncBanner() {
+    const m = lastMeasuredCant;
+    const inp = form.cant_deg;
+    const inputVal = inp ? parseFloat(inp.value) || 0 : 0;
+    if (m == null || !isFinite(m)) { incBanner.hidden = true; return; }
+    const big = Math.abs(m) > INC_THRESHOLD_ABS;
+    const diff = Math.abs(m - inputVal) > INC_THRESHOLD_DIFF;
+    if (!big && !diff) { incBanner.hidden = true; return; }
+    incBanner.hidden = false;
+    incBanner.textContent =
+      `⚠ Завал по компасу ${m.toFixed(1)}° (введено ${inputVal.toFixed(1)}°) — тапни чтобы синхронизировать`;
+  }
+  incBanner.addEventListener('click', () => {
+    const m = lastMeasuredCant;
+    if (m == null || !isFinite(m)) return;
+    form.cant_deg.value = m.toFixed(1);
+    form.cant_deg.dispatchEvent(new Event('input', { bubbles: true }));
+    incBanner.hidden = true;
+  });
+  const unsubCompass = Compass.subscribe(st => {
+    lastMeasuredCant = (st && isFinite(st.cant)) ? st.cant : null;
+    refreshIncBanner();
+  });
+  // обновлять баннер при ручном изменении инпута тоже
+  form.addEventListener('input', e => { if (e.target && e.target.name === 'cant_deg') refreshIncBanner(); });
+  // пассивный запуск компаса (без gesture-permission, т.е. только на Android-WebView)
+  if (Compass.supported() && typeof DeviceOrientationEvent.requestPermission !== 'function') {
+    Compass.start().catch(() => {});
+  }
+  // отписка при уходе с роута
+  const cleanup = () => { try { unsubCompass(); } catch {} window.removeEventListener('hashchange', cleanup); };
+  window.addEventListener('hashchange', cleanup);
 
   // Live-recalc: любое изменение в форме перезапускает submit (debounced).
   let recalcTimer = null;
@@ -2748,7 +2815,7 @@ function reticleScale(cal) {
   return { cx: cal.p0_x, cy: cal.p0_y, hx: px_per_mil_h, vy: px_per_mil_v };
 }
 
-// --- хелпер: отрисовать сетку с метками целей ---
+// --- хелпер: отрисовать сетку с метками целей + subtension-режим + pinch-zoom ---
 function renderReticleViewer(reticle, rows) {
   const wrap = el('div', { class: 'card' });
   if (!reticle || !reticle.imageDataUrl) {
@@ -2760,29 +2827,63 @@ function renderReticleViewer(reticle, rows) {
     wrap.appendChild(el('div', { class: 'banner' }, 'Сетка не откалибрована. Открой её в библиотеке и укажи центр + ссылочную точку.'));
     return wrap;
   }
-  const canvas = el('canvas', { style: 'max-width:100%;height:auto;display:block;border:1px solid var(--border);border-radius:8px;background:#000' });
-  wrap.appendChild(canvas);
+
+  // — тулбар зума + сброс метки —
+  const toolbar = el('div', { class: 'reticle-toolbar' });
+  const btnZoomOut = el('button', { type: 'button', class: 'btn-mini' }, '−');
+  const btnReset   = el('button', { type: 'button', class: 'btn-mini' }, '1:1');
+  const btnZoomIn  = el('button', { type: 'button', class: 'btn-mini' }, '+');
+  const btnClear   = el('button', { type: 'button', class: 'btn-mini ghost' }, '✕ метка');
+  toolbar.appendChild(btnZoomOut);
+  toolbar.appendChild(btnReset);
+  toolbar.appendChild(btnZoomIn);
+  toolbar.appendChild(btnClear);
+  wrap.appendChild(toolbar);
+  wrap.appendChild(el('div', { class: 'reticle-hint' }, 'Тап по сетке → «эта точка ≈ NNN м». Pinch — зум, drag — pan'));
+
+  // — viewport + canvas —
+  const viewport = el('div', { class: 'reticle-viewport' });
+  const canvas = el('canvas', { class: 'reticle-canvas' });
+  viewport.appendChild(canvas);
+  wrap.appendChild(viewport);
+
+  const subtensionLabel = el('div', { class: 'reticle-subtension' });
+  wrap.appendChild(subtensionLabel);
   const legend = el('div', { class: 'kv', style: 'margin-top:10px;font-size:13px' });
   wrap.appendChild(legend);
 
-  const img = new Image();
-  img.onload = () => {
-    const maxW = Math.min(window.innerWidth - 60, 640);
-    const w = Math.min(img.naturalWidth, maxW);
-    const scale = w / img.naturalWidth;
-    canvas.width = w; canvas.height = img.naturalHeight * scale;
+  let imgEl = null, displayScale = 1;
+  let zoom = 1, panX = 0, panY = 0;
+  let marker = null;        // { cx, cy, range, drop_mil, drift_mil }
+  let pinchStart = null, panStart = null, dragHappened = false;
+
+  function applyTransform() {
+    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  }
+  function setZoom(z, focusX, focusY) {
+    z = Math.max(0.5, Math.min(z, 6));
+    if (focusX != null) {
+      const k = z / zoom;
+      panX = focusX - (focusX - panX) * k;
+      panY = focusY - (focusY - panY) * k;
+    }
+    zoom = z;
+    applyTransform();
+  }
+
+  const colors = ['#4ade80','#ffb072','#ff8b3d','#f87171','#a78bfa','#67e8f9','#fde047','#fb923c','#22d3ee','#f472b6'];
+
+  function draw() {
+    if (!imgEl) return;
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
 
-    const colors = ['#4ade80','#ffb072','#ff8b3d','#f87171','#a78bfa','#67e8f9','#fde047','#fb923c','#22d3ee','#f472b6'];
     legend.innerHTML = '';
     rows.forEach((row, i) => {
-      // позиция в натуральных пикселях сетки
       const px = sc.cx + (row.drift_mil || 0) * sc.hx;
       const py = sc.cy + (row.drop_mil || 0) * sc.vy;
-      const x = px * scale, y = py * scale;
-      // только если в пределах канваса
+      const x = px * displayScale, y = py * displayScale;
       if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return;
       const color = colors[i % colors.length];
       ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
@@ -2792,11 +2893,126 @@ function renderReticleViewer(reticle, rows) {
       ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
       ctx.strokeText(row.range + 'м', x + 12, y + 4);
       ctx.fillText(row.range + 'м', x + 12, y + 4);
-      // легенда
       legend.appendChild(el('div', { class: 'k', style: 'color:' + color }, '● ' + row.range + ' м'));
       legend.appendChild(el('div', { class: 'v' },
         `${fmt(row.drop_mil,2)} mil ↓ · ${fmt(row.drift_mil,2)} mil →`));
     });
+
+    if (marker) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      const m = marker;
+      ctx.beginPath();
+      ctx.moveTo(m.cx - 12, m.cy); ctx.lineTo(m.cx + 12, m.cy);
+      ctx.moveTo(m.cx, m.cy - 12); ctx.lineTo(m.cx, m.cy + 12);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(m.cx, m.cy, 14, 0, 2 * Math.PI); ctx.stroke();
+      const lbl = `≈ ${m.range} м`;
+      ctx.font = 'bold 14px monospace';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
+      ctx.strokeText(lbl, m.cx + 18, m.cy - 12);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(lbl, m.cx + 18, m.cy - 12);
+      subtensionLabel.textContent =
+        `Точка сетки ≈ ${m.range} м · drop ${fmt(m.drop_mil,2)} mil · drift ${fmt(m.drift_mil,2)} mil`;
+    } else {
+      subtensionLabel.textContent = '';
+    }
+  }
+
+  function tapToSubtension(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const cx = (clientX - rect.left) / rect.width  * canvas.width;
+    const cy = (clientY - rect.top)  / rect.height * canvas.height;
+    const drift_mil = (cx / displayScale - sc.cx) / sc.hx;
+    const drop_mil  = (cy / displayScale - sc.cy) / sc.vy;
+    let best = null, bestD = Infinity;
+    rows.forEach(r => {
+      const dr = (r.drift_mil || 0) - drift_mil;
+      const dd = (r.drop_mil  || 0) - drop_mil;
+      const d2 = dr * dr + dd * dd;
+      if (d2 < bestD) { bestD = d2; best = r; }
+    });
+    if (best) {
+      marker = { cx, cy, range: best.range, drop_mil, drift_mil };
+      draw();
+    }
+  }
+
+  // click → subtension (срабатывает после touchend на мобиле и на десктопе)
+  canvas.addEventListener('click', (e) => {
+    if (dragHappened) { dragHappened = false; return; }
+    tapToSubtension(e.clientX, e.clientY);
+  });
+
+  // tap-кнопки
+  btnClear.addEventListener('click', () => { marker = null; draw(); });
+  btnZoomIn.addEventListener('click', () => {
+    const r = viewport.getBoundingClientRect();
+    setZoom(zoom * 1.4, r.width / 2, r.height / 2);
+  });
+  btnZoomOut.addEventListener('click', () => {
+    const r = viewport.getBoundingClientRect();
+    setZoom(zoom / 1.4, r.width / 2, r.height / 2);
+  });
+  btnReset.addEventListener('click', () => {
+    zoom = 1; panX = 0; panY = 0; applyTransform();
+  });
+
+  // touch: 1 палец = pan (если zoom>1); 2 пальца = pinch
+  viewport.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      pinchStart = {
+        dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+        zoom, panX, panY,
+        cx: (a.clientX + b.clientX) / 2,
+        cy: (a.clientY + b.clientY) / 2
+      };
+      panStart = null;
+      dragHappened = true;
+    } else if (e.touches.length === 1) {
+      panStart = { sx: e.touches[0].clientX, sy: e.touches[0].clientY, panX, panY };
+    }
+  }, { passive: true });
+
+  viewport.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && pinchStart) {
+      e.preventDefault();
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      const k = dist / pinchStart.dist;
+      const newZ = Math.max(0.5, Math.min(pinchStart.zoom * k, 6));
+      const rect = viewport.getBoundingClientRect();
+      const focusX = pinchStart.cx - rect.left;
+      const focusY = pinchStart.cy - rect.top;
+      zoom = newZ;
+      panX = focusX - (focusX - pinchStart.panX) * (newZ / pinchStart.zoom);
+      panY = focusY - (focusY - pinchStart.panY) * (newZ / pinchStart.zoom);
+      applyTransform();
+    } else if (e.touches.length === 1 && panStart && zoom > 1.001) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - panStart.sx;
+      const dy = e.touches[0].clientY - panStart.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 4) dragHappened = true;
+      panX = panStart.panX + dx;
+      panY = panStart.panY + dy;
+      applyTransform();
+    }
+  }, { passive: false });
+
+  viewport.addEventListener('touchend', () => {
+    pinchStart = null; panStart = null;
+  }, { passive: true });
+
+  const img = new Image();
+  img.onload = () => {
+    const maxW = Math.min(window.innerWidth - 60, 640);
+    const w = Math.min(img.naturalWidth, maxW);
+    displayScale = w / img.naturalWidth;
+    canvas.width = w; canvas.height = img.naturalHeight * displayScale;
+    imgEl = img;
+    draw();
   };
   img.src = reticle.imageDataUrl;
   return wrap;

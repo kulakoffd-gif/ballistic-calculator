@@ -359,6 +359,11 @@ label { text-align: center; }
 .solution-card .main-values {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px;
 }
+.solution-card .main-values.has-w2 { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.solution-card .main-values.has-w2 .axis .val { font-size: clamp(20px, 7.5vw, 34px); }
+.solution-card .main-values.has-w2 .axis .lbl { font-size: 9px; letter-spacing: 1px; }
+.solution-card .main-values.has-w2 .axis .sub-val { font-size: 10px; }
+.solution-card .axis.axis-w2 .lbl { color: var(--accent-2); }
 .solution-card .axis { padding: 4px; min-width: 0; }
 .solution-card .axis .lbl {
   font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
@@ -526,3 +531,47 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
   border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--text);
 }
 .chip.active { background: var(--accent); color: #1a0e05; border-color: var(--accent); }
+
+/* === Reticle viewer (subtension + pinch-zoom) === */
+.reticle-toolbar {
+  display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 6px;
+}
+.btn-mini {
+  padding: 6px 12px; min-width: 44px; font-size: 13px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: inherit; cursor: pointer;
+}
+.btn-mini.ghost { background: transparent; color: var(--muted); }
+.btn-mini:active { background: var(--accent); color: #1a0e05; }
+.reticle-hint {
+  font-size: 11px; color: var(--muted); text-align: center; margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+.reticle-viewport {
+  position: relative; overflow: hidden; touch-action: pan-y;
+  border: 1px solid var(--border); border-radius: 8px; background: #000;
+  width: 100%; max-width: 640px; margin: 0 auto;
+}
+.reticle-canvas {
+  display: block; transform-origin: 0 0; width: 100%; height: auto;
+  user-select: none; -webkit-user-select: none;
+}
+.reticle-subtension {
+  font-size: 12px; color: var(--accent); text-align: center;
+  margin-top: 8px; font-variant-numeric: tabular-nums; min-height: 1em;
+  letter-spacing: 0.5px;
+}
+
+/* === Inclination warning баннер === */
+.incl-banner {
+  display: block; width: 100%;
+  margin: 0 0 8px; padding: 10px 12px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid #5a2424;
+  color: var(--bad);
+  border-radius: 10px;
+  font-family: inherit; font-size: 12px; letter-spacing: 0.5px;
+  text-align: center;
+  cursor: pointer;
+}
+.incl-banner:active { background: rgba(248, 113, 113, 0.22); }
