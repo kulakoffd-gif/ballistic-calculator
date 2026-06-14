@@ -3748,6 +3748,47 @@ route('/settings', async () => {
     }}),
     el('button', { type: 'button', class: 'btn ghost', onclick: () => $('#imp').click() }, '⬆ Импорт JSON')
   ));
+
+  // — Auto-backup в публичную папку /Documents/BalisticNote/backup.json —
+  if (window.Backup) {
+    const backupCard = el('div', { class: 'card' });
+    backupCard.appendChild(el('h2', {}, 'Авто-бэкап в /Documents (пережит удаление APK)'));
+    const statusEl = el('div', { class: 'muted center', style: 'font-size:12px;margin:6px 0' }, '…');
+    backupCard.appendChild(statusEl);
+    backupCard.appendChild(el('div', { class: 'banner' },
+      'Каждое изменение автоматически дублируется в файл /storage/emulated/0/Documents/BalisticNote/backup.json. ' +
+      'Этот файл переживает удаление приложения, поэтому при переустановке данные восстановятся одним тапом.'));
+    backupCard.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+      const r = await Backup.save();
+      if (r.ok) toast(`Сохранено: ${r.size||'?'} байт`);
+      else toast('Ошибка: ' + r.reason);
+      refresh();
+    }}, '💾 Сохранить бэкап сейчас'));
+    backupCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+      if (!confirm('Восстановить базу данных из /Documents/BalisticNote/backup.json?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
+      const r = await Backup.restore();
+      if (r.ok) { toast('Восстановлено (snapshot ' + (r.exportedAt?.slice(0,16) || '—') + ')'); navigate(); }
+      else toast('Ошибка: ' + r.reason);
+    }}, '⤵ Восстановить из /Documents'));
+    async function refresh() {
+      try {
+        if (await Backup.exists()) {
+          const F = window.Capacitor?.Plugins?.Filesystem;
+          const stat = F ? await F.stat({ path: 'BalisticNote/backup.json', directory: 'DOCUMENTS' }) : null;
+          const when = stat?.mtime ? new Date(stat.mtime).toLocaleString() : '—';
+          const kb = stat?.size ? (stat.size / 1024).toFixed(1) + ' KB' : '—';
+          statusEl.textContent = `✓ Бэкап есть · ${kb} · обновлён ${when}`;
+        } else if (!window.Capacitor?.isNativePlatform?.()) {
+          statusEl.textContent = 'Auto-backup работает только в нативном APK (не в браузере)';
+        } else {
+          statusEl.textContent = 'Бэкапа пока нет — нажми «Сохранить сейчас»';
+        }
+      } catch (e) { statusEl.textContent = 'Статус: ' + e.message; }
+    }
+    refresh();
+    view.appendChild(backupCard);
+  }
+
   view.appendChild(el('div', { class: 'card' },
     el('h2', {}, 'О приложении'),
     el('div', { class: 'muted', style: 'line-height:1.5' },
@@ -4644,4 +4685,23 @@ route('/range-card', async () => {
 });
 
 // ============== boot ==============
-navigate();
+(async () => {
+  if (window.Backup) {
+    Backup.instrumentStore();
+    try {
+      if (await Backup.isStoreEmpty() && await Backup.exists()) {
+        const payload = await Backup.read();
+        const total = payload && payload.data
+          ? Object.values(payload.data).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0) : 0;
+        if (total > 0 && confirm(
+          `Найден бэкап в /Documents/BalisticNote (${total} записей, сохранён ${payload.exportedAt?.slice(0,16) || '—'}).\n\nВосстановить базу данных?`
+        )) {
+          const r = await Backup.restore();
+          if (r.ok) toast('База восстановлена из бэкапа');
+          else toast('Ошибка восстановления: ' + r.reason);
+        }
+      }
+    } catch (e) { console.warn('[boot/backup]', e); }
+  }
+  navigate();
+})();
