@@ -1,4 +1,4 @@
-// Скай-Рейндж — главный модуль.
+// BalisticNote Pro — главный модуль.
 
 // ============== helpers ==============
 const $  = (s, r = document) => r.querySelector(s);
@@ -737,7 +737,7 @@ function attachKiloButton(targetSheetGetters) {
 
 // ============== SPLASH ==============
 route('/', async () => {
-  setHeader({ title: 'СкайРейндж' });
+  setHeader({ title: 'BalisticNote Pro' });
   const ranges = await Store.getAll('ranges');
   const splash = el('div', { class: 'splash' });
   splash.appendChild(h(`<svg class="logo" viewBox="0 0 100 100">
@@ -748,8 +748,8 @@ route('/', async () => {
     <line x1="6" y1="50" x2="22" y2="50" stroke="#4a6a55" stroke-width="2"/>
     <line x1="78" y1="50" x2="94" y2="50" stroke="#4a6a55" stroke-width="2"/>
   </svg>`));
-  splash.appendChild(el('div', { class: 'name' }, 'СКАЙ-РЕЙНДЖ'));
-  splash.appendChild(el('div', { class: 'tag' }, 'Precision Ballistics & Log'));
+  splash.appendChild(el('div', { class: 'name' }, 'BalisticNote Pro'));
+  splash.appendChild(el('div', { class: 'tag' }, 'Баллистика · Релоадинг · Журнал'));
   const actions = el('div', { class: 'actions' });
   actions.appendChild(el('a', { class: 'btn good', href: '#/ranges' }, ranges.length ? 'Выбор полигона' : 'Создать полигон'));
   actions.appendChild(el('a', { class: 'btn outline', href: '#/calc' }, 'Быстрый калькулятор'));
@@ -1887,12 +1887,17 @@ route('/calc', async () => {
     numInput('cant_deg', 'Завал, °', state.cant_deg ?? 0),
     numInput('ammoTempC', 'Темп. боеприпасов, °C', state.ammoTempC)
   ));
-  form.appendChild(el('h2', {}, 'Ветер'));
+  form.appendChild(el('h2', {}, 'Ветер 1 (основной)'));
   form.appendChild(el('div', { class: 'row' },
     numInputWithSources('windSpeed', 'Скорость, м/с', state.windSpeed ?? 0,
       [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
     numInputWithSources('windAngle_deg', 'Угол отн. ствола, °', state.windAngle_deg ?? 90,
       [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
+  ));
+  form.appendChild(el('h2', { style: 'margin-top:14px' }, 'Ветер 2 (порывы / другой ракурс) — опц.'));
+  form.appendChild(el('div', { class: 'row' },
+    numInput('windSpeed2', 'Скорость 2, м/с', state.windSpeed2 ?? 0),
+    numInput('windAngle_deg2', 'Угол 2, °', state.windAngle_deg2 ?? 90)
   ));
   form.appendChild(el('h2', {}, 'Кориолис (опц.)'));
   form.appendChild(el('div', { class: 'banner' },
@@ -1979,13 +1984,18 @@ route('/calc', async () => {
     out.appendChild(solCard);
 
     // живой single-distance solve (быстрее чем full table)
-    function solveAt(dist) {
+    function solveAt(dist, useW2 = false) {
       const inp = { ...input, steps: [dist], targetDistance: Math.max(dist, input.zeroDistance || 100) };
+      if (useW2) {
+        inp.windSpeed = d.windSpeed2 || 0;
+        inp.windAngle_deg = d.windAngle_deg2 ?? 90;
+      }
       const r2 = Ballistics.solve(inp);
       const row = r2.rows[0];
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
       return row;
     }
+    const hasW2 = (d.windSpeed2 || 0) > 0;
 
     function dirArrow(value, axis) {
       // axis='v': положит. = подкрутить ВВЕРХ → ▲; отриц. = ▼

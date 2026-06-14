@@ -1,6 +1,6 @@
 {
-  "appId": "com.skyrange.ballistic",
-  "appName": "СкайРейндж",
+  "appId": "com.balisticnote.pro",
+  "appName": "BalisticNote Pro",
   "webDir": "www",
   "android": {
     "allowMixedContent": false,

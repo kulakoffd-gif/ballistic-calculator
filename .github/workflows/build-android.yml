@@ -30,6 +30,12 @@ jobs:
           api-level: 35
           build-tools: 35.0.0
 
+      - name: Setup consistent debug keystore
+        run: |
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore
+          echo "Используется фиксированный debug-keystore из репозитория."
+
       - name: Install npm dependencies
         run: npm install
 
