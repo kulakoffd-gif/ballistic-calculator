@@ -235,32 +235,29 @@ DB: `skyrange`, version 3. Stores:
 - ✅ ~~Pinch-zoom~~ — двумя пальцами pinch с focal point, drag одним пальцем при zoom>1, кнопки `+`/`−`/`1:1` в тулбаре. CSS transform на canvas в overflow:hidden viewport.
 - ✅ ~~Inclination warning~~ — `srcCompass()` для cant_deg + live-баннер в HUD: «⚠ Завал по компасу X° (введено Y°) — тапни чтобы синхронизировать». Пороги: `|cant| > 3°` ИЛИ `|cant - input| > 1°`. Compass.start() запускается пассивно на Android (где нет requestPermission); на iOS — только по кнопке 📐.
 
-### Wave 2 (релоадинг — пользователь хочет)
-- **Библиотека пуль** + ~30 пресетов (Berger/SMK/Hornady/Lapua) — каркас стора `bullets` уже есть
-- **Подготовка гильз** (case prep): цикл, отжиг, full-length die, толщина колец Skip, bushing, проточка дульца, длина после подрезки, mandrel, посадка капса, COAL+CBTO, высота головки матрицы, фото мишени — стор `casePreps`
-- **Релоад** с CBTO, ES/SD/SD% по хронографу — extends `cartridges` store
-- **Универсальные заметки** прикреплённые к патрону/полигону/оружию — стор `notes`
-- **Энергия / Taylor KO** в карточке результата (хелперы готовы)
+### Wave 2 (релоадинг) — ✅ всё сделано
+- ✅ ~~Библиотека пуль~~ — `BULLET_PRESETS` (~30 пуль Berger/SMK/Hornady/Lapua) + sheet «📚 Выбрать из библиотеки» в форме патрона
+- ✅ ~~Подготовка гильз~~ — стор `casePreps`, роуты `/casepreps` и `/caseprep/:id` (отжиг, FL-die, bushing, проточка, COAL/CBTO, высота головки, фото мишени, заметки)
+- ✅ ~~Хронограф ES/SD/SD%~~ — textarea в форме патрона, live-stats avg/SD/ES/SD%, кнопка «Avg → V₀»
+- ✅ ~~Универсальные заметки~~ — стор `notes`, роуты `/notes` и `/note/:id` с прикреплением к патрону/оружию/полигону + теги
+- ✅ ~~Энергия / Taylor KO~~ — в карточке параметров `/calc`
 
-### Wave 3 (анализ)
-- 📸 **Анализ кучности по фото** мишени с линейкой — тап пробоин + 2 точки калибровки → MOA, mean radius, extreme spread
-- **Spotting corrections** (после промаха: «было лево 0.5 mil, выше 0.2 mil» → новая поправка)
-- **Атмосферные пресеты** (сохранённые snapshot'ы «утро на МФОЦ»)
-- **WEZ Monte Carlo** — главный «убойный» фичеризм AB Quantum
-- **Сравнение релоадов** side-by-side
+### Wave 3 (анализ) — ✅ всё сделано
+- ✅ ~~Анализ кучности по фото~~ — `/group-analyzer`: загрузка фото, 2 калибровочные точки + длина в см, тап пробоин → Mean Radius / Extreme Spread / MOA / mil. Кнопка «Отменить» откатывает последнюю точку.
+- ✅ ~~Spotting corrections~~ — кнопка «🎯 Промах» в HUD `/calc` → sheet «вертикаль/горизонталь промаха» → новая поправка
+- ✅ ~~Атмосферные пресеты~~ — `/atmo-presets` (snapshot текущей атмо из `/calc`, применение одной кнопкой)
+- ✅ ~~WEZ Monte Carlo~~ — `/wez`: задаёшь σ дальности/V₀/ветра/ствола → 800 симуляций с numeric derivatives, canvas с эллипсом и % попаданий
+- ✅ ~~Сравнение релоадов~~ — `/compare`: чекбоксы патронов + общая атмо/оружие → таблица drop/drift на N дистанциях бок о бок
 
-### Wave 4 (соревнования / тюнинг)
-- **Reticle library** субтенциями + click value
-- **PRS multi-target stage** (sectors → stages → targets, share через QR)
-- **Range Card PDF** (печать на скотч на ложе)
-- **Custom drag builder** из DOPE
-- **Long-press на поле → объяснение что это** (AB Spotter style, без LLM)
-- **MV Temp Table** — таблица V₀ по температурам (альтернатива линейному коэф.)
+### Wave 4 (соревнования / тюнинг) — ✅ всё сделано
+- ✅ ~~PRS multi-target stage~~ — стор `stages`, роуты `/stages` и `/stage/:id` (название, лимит, патронов, описание, список целей), кнопка «↗ Поделиться JSON» (navigator.share или clipboard)
+- ✅ ~~Range Card печать~~ — `/range-card` с белой карточкой и `@media print` CSS, кнопка «🖨 Печать / Сохранить PDF»
+- ✅ ~~Custom drag builder из DOPE~~ — `/drag-builder`: textarea «дист, mil» по строкам → пакетный вызов `addTruingPoint`, превью результата + «💾 Записать в патрон»
+- ✅ ~~Long-press tooltips~~ — touchstart-таймер 600ms на `label[for]`, словарь `FIELD_HELP` (BC, dragModel, V₀, twist, sight height, zero, wind, temp, pressure, cant и др.) → sheet с пояснением
+- ✅ ~~MV Temp Table~~ — textarea «°C, V₀» в форме патрона (`cart.mvTempTable`), приоритет над линейным коэф. Применяется в `buildSolverInputFor` и в `/calc` submit через `v0FromMvTable()`.
 
-### Wave 5 (iOS, если когда-то)
-- `npx cap add ios` + Info.plist (NSBluetoothAlwaysUsageDescription и др.)
-- Mac с Xcode обязателен
-- Apple Developer Program ($99/год) для TestFlight / App Store
+### Wave 5 (iOS) — заблокирована железом
+- **Не сделано** — требует Mac с Xcode и аккаунт Apple Developer ($99/год). Капкан: `@capacitor/camera` и `@capacitor-community/bluetooth-le` уже совместимы с iOS, останется только `npx cap add ios` + Info.plist (NSBluetoothAlwaysUsageDescription, NSCameraUsageDescription, NSLocationWhenInUseUsageDescription, NSMotionUsageDescription для DeviceOrientation).
 
 ---
 

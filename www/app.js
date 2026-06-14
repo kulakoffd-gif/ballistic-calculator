@@ -1985,14 +1985,19 @@ route('/calc', async () => {
     const c = cartridges.find(x => x.id === d.cartridgeId);
     const w = weapons.find(x => x.id === d.weaponId);
     const rezeroed = c ? await ensureScopeChoice(c) : true;
+    const ammoT_calc = d.ammoTempC ?? d.tempC;
+    const v0FromTable_calc = v0FromMvTable(c, ammoT_calc);
+    const useTable_calc = v0FromTable_calc != null;
     const input = {
       bc: d.bc, dragModel: (c && effectiveDragModel(c) === 'CUSTOM') ? 'CUSTOM' : d.dragModel,
       customDrag: c?.customDrag || null,
-      v0: d.v0, bulletMass_gr: d.bulletMass_gr,
+      v0: useTable_calc ? v0FromTable_calc : d.v0,
+      bulletMass_gr: d.bulletMass_gr,
       bulletLength_in: c?.bulletLength_in, caliber_in: c?.caliber_in,
       twist_in: w?.twist_in, twistRight: w ? (w.twistRight !== false) : true,
-      cant_deg: d.cant_deg, ammoTempC: d.ammoTempC,
-      v0_baseTempC: c?.v0_baseTempC, v0_tempSens_mps_per_C: c?.v0_tempSens_mps_per_C,
+      cant_deg: d.cant_deg, ammoTempC: ammoT_calc,
+      v0_baseTempC: useTable_calc ? ammoT_calc : c?.v0_baseTempC,
+      v0_tempSens_mps_per_C: useTable_calc ? 0 : c?.v0_tempSens_mps_per_C,
       truingPoints: c?.truingPoints || null,
       sightHeight: (d.sightHeight_mm || 50) / 1000,
       zeroDistance: d.zeroDistance, targetDistance: Math.max(...distances, 1000),
@@ -2025,9 +2030,15 @@ route('/calc', async () => {
     const distLabel = el('div', { class: 'dist-pick' }, '');
     const mainGrid = el('div', { class: 'main-values' });
     const stepperRow = el('div', { class: 'range-stepper' });
+    const spotBtn = el('button', { type: 'button', class: 'spot-btn',
+      onclick: () => {
+        const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
+        if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist);
+      } }, '🎯 Промах — пересчитать поправку');
     solCard.appendChild(distLabel);
     solCard.appendChild(mainGrid);
     solCard.appendChild(stepperRow);
+    solCard.appendChild(spotBtn);
     out.appendChild(solCard);
 
     // живой single-distance solve (быстрее чем full table)
@@ -2149,18 +2160,33 @@ route('/calc', async () => {
 
     // — параметры мелким kv —
     const DA_ft = Ballistics.densityAltitude_ft({tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity});
+    const rowAt = res.rows.find(r => r.range === bigDist) || res.rows[0];
+    const massGr = d.bulletMass_gr || c?.bulletMass_gr;
+    const calIn  = c?.caliber_in;
+    const E_J  = massGr ? Ballistics.kineticEnergyJ(massGr, rowAt.vel_mps) : null;
+    const E_fl = massGr ? Ballistics.kineticEnergyFtLb(massGr, rowAt.vel_mps) : null;
+    const TKO  = (massGr && calIn) ? Ballistics.taylorKO(massGr, rowAt.vel_mps, calIn) : null;
     const paramCard = el('div', { class: 'card' });
     paramCard.appendChild(el('h2', {}, 'Атмосфера и баллистика'));
-    paramCard.appendChild(el('div', { class: 'kv' },
+    const kvParams = el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'V на цели'),
-      el('div', { class: 'v' }, fmt((res.rows.find(r=>r.range===bigDist) || res.rows[0]).vel_mps, 0) + ' м/с'),
+      el('div', { class: 'v' }, fmt(rowAt.vel_mps, 0) + ' м/с'),
       el('div', { class: 'k' }, 'Время полёта'),
-      el('div', { class: 'v' }, fmt((res.rows.find(r=>r.range===bigDist) || res.rows[0]).tof_s, 2) + ' с'),
+      el('div', { class: 'v' }, fmt(rowAt.tof_s, 2) + ' с'),
       el('div', { class: 'k' }, 'Плотность воздуха'), el('div', { class: 'v' }, fmt(res.airDensity,3) + ' кг/м³'),
       el('div', { class: 'k' }, 'Density Altitude'), el('div', { class: 'v' }, fmt(DA_ft,0) + ' ft'),
       el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, fmt(res.speedOfSound,1) + ' м/с'),
       el('div', { class: 'k' }, 'Угол бросания'), el('div', { class: 'v' }, fmt(res.launchAngle_deg,3) + '°')
-    ));
+    );
+    if (E_J != null) {
+      kvParams.appendChild(el('div', { class: 'k' }, 'Энергия'));
+      kvParams.appendChild(el('div', { class: 'v' }, `${fmt(E_J,0)} Дж · ${fmt(E_fl,0)} ft·lb`));
+    }
+    if (TKO != null) {
+      kvParams.appendChild(el('div', { class: 'k' }, 'Taylor KO'));
+      kvParams.appendChild(el('div', { class: 'v' }, fmt(TKO, 1)));
+    }
+    paramCard.appendChild(kvParams);
     out.appendChild(paramCard);
 
     // — табы «Поправки | Прицел» —
@@ -2348,6 +2374,15 @@ route('/cartridge/:id', async ({ id }) => {
   const allCartridges = await Store.getAll('cartridges');
   const f = el('form', { class: 'card' });
   f.appendChild(textInput('name', 'Название', c.name, { required: true }));
+  f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openBulletLibrarySheet(b => {
+    f.name.value = b.name;
+    f.bc.value = b.bcG7;
+    f.dragModel.value = 'G7';
+    f.bulletMass_gr.value = b.mass_gr;
+    f.bulletLength_in.value = b.len_in;
+    f.caliber_in.value = b.caliber_in;
+    toast('Заполнено: ' + b.name);
+  })}, '📚 Выбрать из библиотеки'));
   f.appendChild(el('div', { class: 'row' },
     numInput('bc', 'BC (lb/in²)', c.bc),
     selectInput('dragModel', 'Модель', c.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])
@@ -2380,6 +2415,51 @@ route('/cartridge/:id', async ({ id }) => {
     numInput('offsetHorizMil', 'Сдвиг по горизонтали, mil (+вправо)', c.offsetHorizMil ?? 0, { step: '0.05' })
   ));
 
+  // — Хронограф: серия скоростей → ES/SD/SD% —
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Хронограф: ES / SD / SD%'));
+  f.appendChild(el('div', { class: 'banner' },
+    'Вставь серию замеров V₀ (м/с) — через перенос строки или запятую. Приложение посчитает среднее, SD, ES и SD%. Целевые показатели: SD < 3.5 м/с, SD% < 0.5%.'));
+  const chronoInitial = (c.chronoVelocities || []).join('\n');
+  const chronoTA = el('textarea', { id: 'chronoVelocitiesText', name: 'chronoVelocitiesText',
+    placeholder: '820\n822\n819\n821\n823' }, chronoInitial);
+  f.appendChild(el('label', { for: 'chronoVelocitiesText' }, 'Скорости, м/с'));
+  f.appendChild(chronoTA);
+  const chronoStatsBox = el('div', { class: 'kv', style: 'margin-top:8px;font-size:13px' });
+  f.appendChild(chronoStatsBox);
+  function recalcChrono() {
+    const vels = (chronoTA.value || '').split(/[,\s\n]+/).map(s => parseFloat(s)).filter(v => isFinite(v) && v > 0);
+    chronoStatsBox.innerHTML = '';
+    if (vels.length < 2) {
+      chronoStatsBox.appendChild(el('div', { class: 'k' }, 'Замеров'));
+      chronoStatsBox.appendChild(el('div', { class: 'v muted' }, vels.length + ' (нужно ≥2)'));
+      return;
+    }
+    const st = Ballistics.chronoStats(vels);
+    const color = st.sdPct < 0.5 ? 'var(--good)' : st.sdPct < 0.8 ? 'var(--accent)' : 'var(--bad)';
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'N'));
+    chronoStatsBox.appendChild(el('div', { class: 'v' }, String(st.n)));
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'Avg'));
+    chronoStatsBox.appendChild(el('div', { class: 'v' }, fmt(st.avg,1) + ' м/с'));
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'SD'));
+    chronoStatsBox.appendChild(el('div', { class: 'v' }, fmt(st.sd,2) + ' м/с'));
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'ES'));
+    chronoStatsBox.appendChild(el('div', { class: 'v' }, fmt(st.es,1) + ' м/с'));
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'SD%'));
+    chronoStatsBox.appendChild(el('div', { class: 'v', style: 'color:' + color }, fmt(st.sdPct,2) + ' %'));
+    chronoStatsBox.appendChild(el('div', { class: 'k' }, 'Min – Max'));
+    chronoStatsBox.appendChild(el('div', { class: 'v' }, fmt(st.min,1) + ' – ' + fmt(st.max,1)));
+  }
+  chronoTA.addEventListener('input', recalcChrono);
+  recalcChrono();
+  f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    const vels = (chronoTA.value || '').split(/[,\s\n]+/).map(s => parseFloat(s)).filter(v => isFinite(v) && v > 0);
+    if (vels.length < 2) { toast('Нужно ≥2 значений'); return; }
+    const st = Ballistics.chronoStats(vels);
+    f.v0.value = st.avg.toFixed(1);
+    toast('V₀ ← ' + st.avg.toFixed(1) + ' м/с (avg)');
+  }}, 'Avg → V₀'));
+
   // — Powder temperature sensitivity —
   f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Темп. чувствительность пороха'));
@@ -2389,6 +2469,15 @@ route('/cartridge/:id', async ({ id }) => {
     numInput('v0_baseTempC', 'Базовая темп. для V₀, °C', c.v0_baseTempC ?? 21),
     numInput('v0_tempSens_mps_per_C', 'Чувствит., м/с / °C', c.v0_tempSens_mps_per_C ?? 0)
   ));
+  // — MV Temp Table (альтернатива линейному коэф.) —
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'MV Temp Table (опц., приоритет над линейным коэф.)'));
+  f.appendChild(el('div', { class: 'banner' },
+    'Таблица «температура °C, V₀ м/с» по строкам — если задана (≥2 точки), при расчёте V₀ берётся интерполяцией по ammoTempC, а линейный коэф. выше игнорируется.'));
+  f.appendChild(el('label', { for: 'mvTempText' }, 'Точки: «°C, V₀»'));
+  const mvInitial = (c.mvTempTable || []).map(p => `${p.tempC}, ${p.v0}`).join('\n');
+  f.appendChild(el('textarea', { id: 'mvTempText', name: 'mvTempText',
+    placeholder: '-10, 805\n0, 815\n15, 828\n30, 840' }, mvInitial));
 
   // — Custom drag (CDM) —
   f.appendChild(el('hr'));
@@ -2462,6 +2551,17 @@ route('/cartridge/:id', async ({ id }) => {
       .map(s => s.split(/[,\s]+/).map(x => parseFloat(x)))
       .filter(p => p.length === 2 && isFinite(p[0]) && isFinite(p[1]));
     delete d.customDragText;
+    const chronoVels = (d.chronoVelocitiesText || '').split(/[,\s\n]+/)
+      .map(s => parseFloat(s)).filter(v => isFinite(v) && v > 0);
+    delete d.chronoVelocitiesText;
+    d.chronoVelocities = chronoVels;
+    d.chronoStats = chronoVels.length >= 2 ? Ballistics.chronoStats(chronoVels) : null;
+    const mvPts = (d.mvTempText || '').split('\n').map(s => s.trim()).filter(Boolean).map(s => {
+      const [t, v] = s.split(/[,\s]+/).map(parseFloat);
+      return (isFinite(t) && isFinite(v) && v > 0) ? { tempC: t, v0: v } : null;
+    }).filter(Boolean).sort((a, b) => a.tempC - b.tempC);
+    delete d.mvTempText;
+    d.mvTempTable = mvPts.length >= 2 ? mvPts : null;
     // базовый патрон — взаимоисключающие условия
     if (d.isBase) {
       d.baseCartridgeId = null;
@@ -2480,6 +2580,89 @@ route('/cartridge/:id', async ({ id }) => {
   view.appendChild(f);
 });
 
+// — Библиотека пуль (BC из общедоступных мануфактурер-таблиц; всегда можно править) —
+const BULLET_PRESETS = [
+  // .224 (5.56)
+  { name: 'Berger 80.5 Fullbore', cal: '.224', caliber_in: 0.224, mass_gr: 80.5, len_in: 1.045, bcG7: 0.247, bcG1: 0.480 },
+  { name: 'Berger 88 Hybrid Target', cal: '.224', caliber_in: 0.224, mass_gr: 88, len_in: 1.171, bcG7: 0.274, bcG1: 0.545 },
+  { name: 'Sierra MK 77 HPBT', cal: '.224', caliber_in: 0.224, mass_gr: 77, len_in: 0.985, bcG7: 0.186, bcG1: 0.372 },
+  { name: 'Hornady ELD-M 75', cal: '.224', caliber_in: 0.224, mass_gr: 75, len_in: 0.975, bcG7: 0.190, bcG1: 0.395 },
+  // 6mm
+  { name: 'Berger 105 Hybrid', cal: '6mm', caliber_in: 0.243, mass_gr: 105, len_in: 1.215, bcG7: 0.278, bcG1: 0.545 },
+  { name: 'Berger 109 LRHT', cal: '6mm', caliber_in: 0.243, mass_gr: 109, len_in: 1.265, bcG7: 0.298, bcG1: 0.585 },
+  { name: 'Hornady ELD-M 108', cal: '6mm', caliber_in: 0.243, mass_gr: 108, len_in: 1.250, bcG7: 0.275, bcG1: 0.536 },
+  // 6.5mm
+  { name: 'Berger 140 Hybrid', cal: '6.5mm', caliber_in: 0.264, mass_gr: 140, len_in: 1.350, bcG7: 0.299, bcG1: 0.595 },
+  { name: 'Berger 153.5 LRHT', cal: '6.5mm', caliber_in: 0.264, mass_gr: 153.5, len_in: 1.430, bcG7: 0.328, bcG1: 0.661 },
+  { name: 'Sierra MK 142 HPBT', cal: '6.5mm', caliber_in: 0.264, mass_gr: 142, len_in: 1.375, bcG7: 0.292, bcG1: 0.595 },
+  { name: 'Hornady ELD-M 147', cal: '6.5mm', caliber_in: 0.264, mass_gr: 147, len_in: 1.404, bcG7: 0.314, bcG1: 0.617 },
+  { name: 'Hornady ELD-M 140', cal: '6.5mm', caliber_in: 0.264, mass_gr: 140, len_in: 1.345, bcG7: 0.281, bcG1: 0.580 },
+  { name: 'Lapua Scenar-L 136', cal: '6.5mm', caliber_in: 0.264, mass_gr: 136, len_in: 1.310, bcG7: 0.270, bcG1: 0.530 },
+  // .284 (7mm)
+  { name: 'Berger 180 Hybrid', cal: '7mm', caliber_in: 0.284, mass_gr: 180, len_in: 1.555, bcG7: 0.345, bcG1: 0.683 },
+  { name: 'Berger 195 EOL Elite', cal: '7mm', caliber_in: 0.284, mass_gr: 195, len_in: 1.640, bcG7: 0.381, bcG1: 0.755 },
+  { name: 'Sierra MK 183 HPBT', cal: '7mm', caliber_in: 0.284, mass_gr: 183, len_in: 1.555, bcG7: 0.343, bcG1: 0.700 },
+  { name: 'Hornady ELD-M 180', cal: '7mm', caliber_in: 0.284, mass_gr: 180, len_in: 1.541, bcG7: 0.359, bcG1: 0.712 },
+  // .308 (7.62)
+  { name: 'Berger 200.20X Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 200.2, len_in: 1.561, bcG7: 0.328, bcG1: 0.640 },
+  { name: 'Berger 215 Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 215, len_in: 1.560, bcG7: 0.345, bcG1: 0.691 },
+  { name: 'Sierra MK 175 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.240, bcG7: 0.243, bcG1: 0.505 },
+  { name: 'Sierra MK 168 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.215, bcG7: 0.218, bcG1: 0.462 },
+  { name: 'Sierra MK 220 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 220, len_in: 1.470, bcG7: 0.310, bcG1: 0.629 },
+  { name: 'Hornady ELD-M 178', cal: '.308', caliber_in: 0.308, mass_gr: 178, len_in: 1.355, bcG7: 0.243, bcG1: 0.500 },
+  { name: 'Hornady ELD-M 208', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.493, bcG7: 0.315, bcG1: 0.648 },
+  { name: 'Lapua Scenar 167', cal: '.308', caliber_in: 0.308, mass_gr: 167, len_in: 1.236, bcG7: 0.222, bcG1: 0.470 },
+  // .338
+  { name: 'Berger 300 Hybrid', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.823, bcG7: 0.418, bcG1: 0.821 },
+  { name: 'Sierra MK 300 HPBT', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.795, bcG7: 0.385, bcG1: 0.768 },
+  { name: 'Lapua Scenar 250', cal: '.338', caliber_in: 0.338, mass_gr: 250, len_in: 1.495, bcG7: 0.322, bcG1: 0.675 },
+  { name: 'Lapua Scenar 300', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.795, bcG7: 0.391, bcG1: 0.780 },
+  // .50 BMG
+  { name: 'Hornady A-MAX 750', cal: '.50 BMG', caliber_in: 0.510, mass_gr: 750, len_in: 2.290, bcG7: 0.515, bcG1: 1.050 },
+];
+function openBulletLibrarySheet(applyFn) {
+  openSheet((sheet, close) => {
+    sheet.appendChild(el('h3', {}, 'Библиотека пуль'));
+    sheet.appendChild(el('div', { class: 'sub' }, 'Тапни — заполнит поля. BC уточни под свою партию.'));
+    const search = el('input', { type: 'search', placeholder: 'Поиск: «6.5», «Berger 140», «308»…' });
+    sheet.appendChild(search);
+    const list = el('div', { style: 'max-height:60vh;overflow-y:auto;margin-top:8px' });
+    sheet.appendChild(list);
+    function render() {
+      list.innerHTML = '';
+      const q = (search.value || '').toLowerCase().trim();
+      const items = BULLET_PRESETS.filter(b =>
+        !q || b.name.toLowerCase().includes(q) || b.cal.toLowerCase().includes(q));
+      if (!items.length) { list.appendChild(el('div', { class: 'muted center' }, 'Ничего не найдено')); return; }
+      for (const b of items) {
+        const item = el('button', { type: 'button', class: 'list-item', style: 'width:100%;text-align:left',
+          onclick: () => { applyFn(b); close(); } });
+        item.appendChild(el('div', { class: 'ttl' }, b.name));
+        item.appendChild(el('div', { class: 'sub' },
+          `${b.cal} · ${b.mass_gr} gr · G7 ${b.bcG7} / G1 ${b.bcG1}`));
+        list.appendChild(item);
+      }
+    }
+    search.addEventListener('input', render);
+    render();
+  });
+}
+
+// helper: V₀ из MV Temp Table при заданной темп. боеприпаса (линейная интерполяция между точками)
+function v0FromMvTable(cart, ammoTempC) {
+  const t = cart?.mvTempTable;
+  if (!t || t.length < 2 || ammoTempC == null || !isFinite(ammoTempC)) return null;
+  if (ammoTempC <= t[0].tempC) return t[0].v0;
+  if (ammoTempC >= t[t.length - 1].tempC) return t[t.length - 1].v0;
+  for (let i = 1; i < t.length; i++) {
+    if (t[i].tempC >= ammoTempC) {
+      const a = t[i - 1], b = t[i];
+      return a.v0 + (b.v0 - a.v0) * (ammoTempC - a.tempC) / (b.tempC - a.tempC);
+    }
+  }
+  return null;
+}
+
 // helper: эффективные параметры баллистики из weapon + cartridge
 function effectiveBC(c) { return c.truedBC || c.bc; }
 function effectiveDragModel(c) {
@@ -2487,11 +2670,14 @@ function effectiveDragModel(c) {
   return c.dragModel || 'G1';
 }
 function buildSolverInputFor(weapon, cart, distances, weather, opts = {}) {
+  const ammoT = weather.ammoTempC ?? weather.tempC;
+  const v0FromTable = v0FromMvTable(cart, ammoT);
+  const useTable = v0FromTable != null;
   return {
     bc: effectiveBC(cart),
     dragModel: effectiveDragModel(cart),
     customDrag: cart.customDrag || null,
-    v0: cart.v0,
+    v0: useTable ? v0FromTable : cart.v0,
     bulletMass_gr: cart.bulletMass_gr,
     bulletLength_in: cart.bulletLength_in,
     caliber_in: cart.caliber_in,
@@ -2506,9 +2692,9 @@ function buildSolverInputFor(weapon, cart, distances, weather, opts = {}) {
     windAngle_deg: weather.windAngle_deg ?? 0,
     shotAngle_deg: weather.shotAngle_deg ?? 0,
     cant_deg: weather.cant_deg ?? 0,
-    ammoTempC: weather.ammoTempC ?? weather.tempC,
-    v0_baseTempC: cart.v0_baseTempC,
-    v0_tempSens_mps_per_C: cart.v0_tempSens_mps_per_C,
+    ammoTempC: ammoT,
+    v0_baseTempC: useTable ? ammoT : cart.v0_baseTempC,
+    v0_tempSens_mps_per_C: useTable ? 0 : cart.v0_tempSens_mps_per_C,
     truingPoints: cart.truingPoints || null,
     latitude_deg: weather.latitude_deg ?? 0,
     azimuth_deg: weather.azimuth_deg ?? 0,
@@ -3568,6 +3754,893 @@ route('/settings', async () => {
       'Полноценный баллистический калькулятор (G1/G7) и журнал стрельб. Работает офлайн. ',
       'Для установки на главный экран: Chrome → меню → «Добавить на главный экран», Safari → «Поделиться» → «На экран Домой».')
   ));
+});
+
+// ============== CASE PREPS (Wave 2.4) ==============
+route('/casepreps', async () => {
+  setHeader({ title: 'Подготовка гильз' });
+  const items = await Store.getAll('casePreps');
+  const cartridges = await Store.getAll('cartridges');
+  const cartName = id => cartridges.find(c => c.id === id)?.name || '—';
+  if (!items.length) view.appendChild(el('div', { class: 'banner' }, 'Нет ни одной записи подготовки. Создай первую.'));
+  for (const cp of items.sort((a,b)=> (b.updatedAt||'').localeCompare(a.updatedAt||''))) {
+    view.appendChild(el('a', { class: 'list-item', href: '#/caseprep/' + cp.id },
+      el('div', { class: 'ttl' }, cp.name || ('Цикл ' + (cp.cycleNum ?? '?'))),
+      el('div', { class: 'sub' },
+        `${cartName(cp.cartridgeId)} · цикл ${cp.cycleNum ?? '?'} · ${cp.annealed ? 'отжиг ✓' : 'без отжига'}` +
+        (cp.cbto_in ? ` · CBTO ${cp.cbto_in}"` : '')
+      )
+    ));
+  }
+  view.appendChild(el('a', { class: 'fab', href: '#/caseprep/new' }, '+'));
+});
+route('/caseprep/:id', async ({ id }) => {
+  const isNew = id === 'new';
+  const cp = isNew ? { id: Store.uid() } : await Store.get('casePreps', id);
+  if (!cp) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
+  setHeader({ title: isNew ? 'Новый цикл подготовки' : (cp.name || 'Цикл подготовки') });
+  const cartridges = await Store.getAll('cartridges');
+  const f = el('form', { class: 'card' });
+  f.appendChild(textInput('name', 'Название', cp.name));
+  f.appendChild(el('div', { class: 'row' },
+    selectInput('cartridgeId', 'Патрон', cp.cartridgeId || '',
+      [{ value: '', label: '—' }, ...cartridges.map(c => ({ value: c.id, label: c.name }))]),
+    numInput('cycleNum', 'Номер цикла', cp.cycleNum)
+  ));
+  f.appendChild(el('label', { class: 'checkbox' },
+    el('input', { type: 'checkbox', name: 'annealed', checked: cp.annealed ? true : undefined }),
+    el('span', { class: 'lbl' }, 'Отжиг шейки выполнен')
+  ));
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Матрицы и геометрия'));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('fl_die', 'FL-die (бренд/модель)', cp.fl_die),
+    numInput('bushing_in', 'Bushing, in', cp.bushing_in, { step: '0.001' })
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('neck_turning', 'Проточка дульца', cp.neck_turning),
+    numInput('trim_length_in', 'Длина после подрезки, in', cp.trim_length_in, { step: '0.001' })
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('mandrel', 'Mandrel', cp.mandrel),
+    textInput('primer_seating', 'Посадка капса', cp.primer_seating)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('coal_in', 'COAL, in', cp.coal_in, { step: '0.001' }),
+    numInput('cbto_in', 'CBTO, in', cp.cbto_in, { step: '0.001' })
+  ));
+  f.appendChild(numInput('die_height_mm', 'Высота головки матрицы, мм', cp.die_height_mm, { step: '0.01' }));
+  f.appendChild(el('hr'));
+  f.appendChild(el('label', { for: 'notes' }, 'Заметки и наблюдения'));
+  f.appendChild(el('textarea', { id: 'notes', name: 'notes' }, cp.notes || ''));
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Фото мишени (опц.)'));
+  const targetPreview = el('div', { style: 'text-align:center;margin:8px 0' });
+  if (cp.targetImageDataUrl) {
+    targetPreview.appendChild(el('img', { src: cp.targetImageDataUrl,
+      style: 'max-width:100%;max-height:240px;border:1px solid var(--border);border-radius:8px' }));
+  }
+  f.appendChild(targetPreview);
+  let pendingTargetImage = cp.targetImageDataUrl || null;
+  f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+    try {
+      const dataUrl = await pickImageDataUrl();
+      if (dataUrl) {
+        pendingTargetImage = dataUrl;
+        targetPreview.innerHTML = '';
+        targetPreview.appendChild(el('img', { src: dataUrl,
+          style: 'max-width:100%;max-height:240px;border:1px solid var(--border);border-radius:8px' }));
+        toast('Фото загружено');
+      }
+    } catch (e) { toast('Ошибка: ' + e.message); }
+  }}, '📷 Загрузить фото мишени'));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
+  if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
+    if (confirm('Удалить?')) { await Store.del('casePreps', id); location.hash = '#/casepreps'; }
+  }}, 'Удалить'));
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = readForm(f);
+    await Store.put('casePreps', { ...cp, ...d, targetImageDataUrl: pendingTargetImage });
+    toast('Сохранено'); location.hash = '#/casepreps';
+  });
+  view.appendChild(f);
+});
+
+// helper: pickImageDataUrl — Capacitor Camera + fallback на input[type=file]
+async function pickImageDataUrl() {
+  if (window.Capacitor?.Plugins?.Camera) {
+    const Camera = window.Capacitor.Plugins.Camera;
+    const photo = await Camera.getPhoto({
+      quality: 70, resultType: 'dataUrl', source: 'PROMPT', allowEditing: false,
+      promptLabelHeader: 'Источник', promptLabelPhoto: 'Из галереи', promptLabelPicture: 'Камера'
+    });
+    return photo?.dataUrl || null;
+  }
+  return await new Promise(resolve => {
+    const inp = el('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+    inp.addEventListener('change', async () => {
+      const file = inp.files[0];
+      if (!file) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+    document.body.appendChild(inp); inp.click();
+    setTimeout(() => inp.remove(), 60000);
+  });
+}
+
+// ============== NOTES (Wave 2.5) ==============
+route('/notes', async () => {
+  setHeader({ title: 'Заметки' });
+  const items = await Store.getAll('notes');
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  const ranges = await Store.getAll('ranges');
+  function attachedLabel(n) {
+    if (n.attachedType === 'cartridge') return '🎯 ' + (cartridges.find(x => x.id === n.attachedId)?.name || '—');
+    if (n.attachedType === 'weapon')    return '🔫 ' + (weapons.find(x => x.id === n.attachedId)?.name || '—');
+    if (n.attachedType === 'range')     return '🗺 ' + (ranges.find(x => x.id === n.attachedId)?.name || '—');
+    return '';
+  }
+  if (!items.length) view.appendChild(el('div', { class: 'banner' }, 'Заметок нет. Создай первую.'));
+  for (const n of items.sort((a,b)=> (b.updatedAt||'').localeCompare(a.updatedAt||''))) {
+    view.appendChild(el('a', { class: 'list-item', href: '#/note/' + n.id },
+      el('div', { class: 'ttl' }, n.title || 'Без названия'),
+      el('div', { class: 'sub' },
+        [attachedLabel(n), (n.tags || []).join(' · ')].filter(Boolean).join(' · ') || '—')
+    ));
+  }
+  view.appendChild(el('a', { class: 'fab', href: '#/note/new' }, '+'));
+});
+route('/note/:id', async ({ id }) => {
+  const isNew = id === 'new';
+  const n = isNew ? { id: Store.uid() } : await Store.get('notes', id);
+  if (!n) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
+  setHeader({ title: isNew ? 'Новая заметка' : (n.title || 'Заметка') });
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  const ranges = await Store.getAll('ranges');
+  const f = el('form', { class: 'card' });
+  f.appendChild(textInput('title', 'Заголовок', n.title));
+  f.appendChild(el('label', { for: 'body' }, 'Текст заметки'));
+  f.appendChild(el('textarea', { id: 'body', name: 'body', style: 'min-height:160px' }, n.body || ''));
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Прикрепление'));
+  f.appendChild(selectInput('attachedType', 'Тип', n.attachedType || '',
+    [{value:'', label:'— не прикреплена —'},
+     {value:'cartridge', label:'Патрон'},
+     {value:'weapon', label:'Оружие'},
+     {value:'range', label:'Полигон'}]));
+  const attachWrap = el('div');
+  f.appendChild(attachWrap);
+  function rebuildAttach() {
+    attachWrap.innerHTML = '';
+    const t = f.attachedType.value;
+    const src = t === 'cartridge' ? cartridges : t === 'weapon' ? weapons : t === 'range' ? ranges : [];
+    if (!t) return;
+    attachWrap.appendChild(selectInput('attachedId', 'Объект', n.attachedId || '',
+      [{ value: '', label: '— выбери —' }, ...src.map(x => ({ value: x.id, label: x.name || x.id }))]));
+  }
+  f.attachedType.addEventListener('change', rebuildAttach);
+  rebuildAttach();
+  f.appendChild(textInput('tagsRaw', 'Теги (через запятую)', (n.tags || []).join(', ')));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
+  if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
+    if (confirm('Удалить?')) { await Store.del('notes', id); location.hash = '#/notes'; }
+  }}, 'Удалить'));
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = readForm(f);
+    d.tags = (d.tagsRaw || '').split(',').map(s => s.trim()).filter(Boolean);
+    delete d.tagsRaw;
+    if (!d.attachedType) { d.attachedType = null; d.attachedId = null; }
+    await Store.put('notes', { ...n, ...d });
+    toast('Сохранено'); location.hash = '#/notes';
+  });
+  view.appendChild(f);
+});
+
+// ============== ATMO PRESETS (Wave 3.1) ==============
+function loadAtmoPresets() {
+  try { return JSON.parse(localStorage.getItem('atmoPresets') || '[]'); } catch { return []; }
+}
+function saveAtmoPresets(arr) { localStorage.setItem('atmoPresets', JSON.stringify(arr)); }
+route('/atmo-presets', async () => {
+  setHeader({ title: 'Атмо-пресеты' });
+  const presets = loadAtmoPresets();
+  view.appendChild(el('div', { class: 'banner' },
+    'Сохрани атмо-снепшот «утро на МФОЦ» или «зимой в Подмосковье» — применяй одной кнопкой в Калькуляторе.'));
+  if (!presets.length) view.appendChild(el('div', { class: 'card muted center' }, 'Пресетов нет'));
+  for (const p of presets) {
+    const card = el('div', { class: 'card' });
+    card.appendChild(el('div', { class: 'ttl' }, p.name));
+    card.appendChild(el('div', { class: 'kv', style: 'font-size:13px' },
+      el('div', { class: 'k' }, 'T / P / RH'),
+      el('div', { class: 'v' }, `${p.tempC}°C · ${p.pressureMbar} гПа · ${p.humidity}%`),
+      el('div', { class: 'k' }, 'Ветер'),
+      el('div', { class: 'v' }, `${p.windSpeed ?? 0} м/с @ ${p.windAngle_deg ?? 0}°`)
+    ));
+    card.appendChild(el('div', { class: 'row-btn', style: 'margin-top:10px' },
+      el('button', { type: 'button', class: 'btn', onclick: () => {
+        const cur = JSON.parse(localStorage.getItem('calc:last') || '{}');
+        Object.assign(cur, {
+          tempC: p.tempC, pressureMbar: p.pressureMbar, humidity: p.humidity,
+          windSpeed: p.windSpeed, windAngle_deg: p.windAngle_deg
+        });
+        localStorage.setItem('calc:last', JSON.stringify(cur));
+        toast('Применено');
+        location.hash = '#/calc';
+      }}, 'Применить'),
+      el('button', { type: 'button', class: 'btn danger', onclick: () => {
+        if (!confirm('Удалить?')) return;
+        const next = loadAtmoPresets().filter(x => x.id !== p.id);
+        saveAtmoPresets(next); navigate();
+      }}, 'Удалить')
+    ));
+    view.appendChild(card);
+  }
+  view.appendChild(el('button', { class: 'btn', onclick: () => {
+    const name = prompt('Название пресета (например, «утро на МФОЦ»)');
+    if (!name) return;
+    const cur = JSON.parse(localStorage.getItem('calc:last') || '{}');
+    const p = {
+      id: Store.uid(), name,
+      tempC: cur.tempC ?? 15, pressureMbar: cur.pressureMbar ?? 1013, humidity: cur.humidity ?? 50,
+      windSpeed: cur.windSpeed ?? 0, windAngle_deg: cur.windAngle_deg ?? 90,
+      savedAt: new Date().toISOString()
+    };
+    const next = [...loadAtmoPresets(), p];
+    saveAtmoPresets(next); navigate();
+  }}, '＋ Снепшот текущей атмо из Калькулятора'));
+});
+
+// ============== SPOTTING CORRECTIONS (Wave 3.2) — sheet, вызывается из /calc ==============
+function openSpottingSheet(currentDropMil, currentDriftMil, dist) {
+  openSheet((sheet, close) => {
+    sheet.appendChild(el('h3', {}, 'Промах — поправка'));
+    sheet.appendChild(el('div', { class: 'sub' }, `Дистанция ${dist} м, текущая поправка V ${fmt(currentDropMil,2)} mil, H ${fmt(currentDriftMil,2)} mil`));
+    sheet.appendChild(el('div', { class: 'banner' },
+      'Куда УШЛА пуля относительно цели. ВВЕРХ +, ВНИЗ −, ВПРАВО +, ВЛЕВО −. Приложение посчитает новую поправку.'));
+    sheet.appendChild(el('div', { class: 'row' },
+      numInput('vertMissMil', 'Вертикаль (mil)', 0, { step: '0.1' }),
+      numInput('horizMissMil', 'Горизонталь (mil)', 0, { step: '0.1' })
+    ));
+    const result = el('div', { class: 'card', style: 'margin-top:10px' });
+    sheet.appendChild(result);
+    function recalc() {
+      const d = readForm(sheet);
+      const newDrop = currentDropMil - (d.vertMissMil || 0);
+      const newDrift = currentDriftMil - (d.horizMissMil || 0);
+      result.innerHTML = '';
+      result.appendChild(el('div', { class: 'kv' },
+        el('div', { class: 'k' }, 'Новая вертикаль'),
+        el('div', { class: 'v accent' }, fmt(newDrop, 2) + ' mil'),
+        el('div', { class: 'k' }, 'Новая горизонталь'),
+        el('div', { class: 'v accent' }, fmt(newDrift, 2) + ' mil')
+      ));
+    }
+    sheet.addEventListener('input', recalc);
+    recalc();
+    sheet.appendChild(el('div', { class: 'row-btn' },
+      el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Закрыть')
+    ));
+  });
+}
+
+// ============== WEZ MONTE CARLO (Wave 3.3) ==============
+function gaussN() {
+  // Box-Muller
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+route('/wez', async () => {
+  setHeader({ title: 'WEZ Monte Carlo' });
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  if (!cartridges.length || !weapons.length) {
+    view.appendChild(el('div', { class: 'banner' }, 'Нужно хотя бы 1 оружие и 1 патрон.'));
+    return;
+  }
+  const f = el('form', { class: 'card' });
+  f.appendChild(selectInput('weaponId', 'Оружие', '', weapons.map(w => ({ value: w.id, label: w.name }))));
+  f.appendChild(selectInput('cartridgeId', 'Патрон', '', cartridges.map(c => ({ value: c.id, label: c.name }))));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('range', 'Дистанция, м', 600),
+    numInput('targetRadius_cm', 'Радиус цели, см', 15)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('tempC', 'Темп., °C', 15),
+    numInput('pressureMbar', 'Давл., гПа', 1013)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('windSpeed', 'Ветер, м/с', 3),
+    numInput('windAngle_deg', 'Угол ветра, °', 90)
+  ));
+  f.appendChild(el('h2', {}, 'σ (неопределённости)'));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('sigmaRange_m', 'σ дальности, м', 5),
+    numInput('sigmaV0_mps', 'σ V₀, м/с', 5)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('sigmaWind_mps', 'σ ветра, м/с', 1),
+    numInput('sigmaRifle_mil', 'σ ствола, mil', 0.15)
+  ));
+  f.appendChild(numInput('n', 'Симуляций', 800));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Рассчитать'));
+  const out = el('div', { id: 'wezOut', style: 'margin-top:14px' });
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = readForm(f);
+    const cart = cartridges.find(x => x.id === d.cartridgeId);
+    const weap = weapons.find(x => x.id === d.weaponId);
+    if (!cart || !weap) { toast('Выбери оружие и патрон'); return; }
+    const baseInput = buildSolverInputFor(weap, cart, [d.range], {
+      tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: 50,
+      windSpeed: d.windSpeed, windAngle_deg: d.windAngle_deg
+    });
+    const baseSol = Ballistics.solve(baseInput);
+    if (!baseSol.rows[0]) { toast('Solver не справился'); return; }
+    const baseDropMil = baseSol.rows[0].drop_mil;
+    const baseDriftMil = baseSol.rows[0].drift_mil;
+    // numeric derivatives: ∂drop/∂range, ∂drop/∂v0, ∂drift/∂wind
+    const dr = 10; // м
+    const dv = 5; // м/с
+    const dw = 1; // м/с
+    const solDR = Ballistics.solve({ ...baseInput, steps: [d.range + dr], targetDistance: d.range + dr });
+    const solDV = Ballistics.solve({ ...baseInput, v0: baseInput.v0 + dv });
+    const solDW = Ballistics.solve({ ...baseInput, windSpeed: baseInput.windSpeed + dw });
+    const dDrop_dR = solDR.rows[0] ? (solDR.rows[0].drop_mil - baseDropMil) / dr : 0;
+    const dDrop_dV = solDV.rows[0] ? (solDV.rows[0].drop_mil - baseDropMil) / dv : 0;
+    const dDrift_dW = solDW.rows[0] ? (solDW.rows[0].drift_mil - baseDriftMil) / dw : 0;
+    // Monte Carlo
+    const N = Math.min(Math.max(parseInt(d.n) || 800, 50), 5000);
+    const hits = [];
+    let hitCount = 0;
+    const r_target_mil = (d.targetRadius_cm * 10) / d.range; // см→м→mil-on-distance (mil = m/Range_km/... actually mil ≈ m/km)
+    // правильно: 1 mil ≈ 1 м на 1000 м. Радиус цели в м / range_m * 1000 = mil
+    const r_mil = (d.targetRadius_cm / 100) / d.range * 1000;
+    for (let i = 0; i < N; i++) {
+      const dRange = gaussN() * d.sigmaRange_m;
+      const dV0 = gaussN() * d.sigmaV0_mps;
+      const dW = gaussN() * d.sigmaWind_mps;
+      const rifleX = gaussN() * d.sigmaRifle_mil;
+      const rifleY = gaussN() * d.sigmaRifle_mil;
+      const dropErr = dDrop_dR * dRange + dDrop_dV * dV0 + rifleY;
+      const driftErr = dDrift_dW * dW + rifleX;
+      hits.push({ x: driftErr, y: dropErr });
+      if (Math.hypot(driftErr, dropErr) <= r_mil) hitCount++;
+    }
+    // Render canvas
+    out.innerHTML = '';
+    const pct = (hitCount / N) * 100;
+    out.appendChild(el('div', { class: 'card' },
+      el('h2', {}, 'Hit probability'),
+      el('div', { class: 'big-num', style: 'color:' + (pct > 70 ? 'var(--good)' : pct > 40 ? 'var(--accent)' : 'var(--bad)') },
+        fmt(pct, 1) + '%'),
+      el('div', { class: 'muted center' }, `${hitCount} попаданий из ${N} симуляций`),
+      el('div', { class: 'kv', style: 'margin-top:8px;font-size:13px' },
+        el('div', { class: 'k' }, '∂drop/∂range'),
+        el('div', { class: 'v' }, fmt(dDrop_dR, 3) + ' mil/м'),
+        el('div', { class: 'k' }, '∂drop/∂V₀'),
+        el('div', { class: 'v' }, fmt(dDrop_dV, 3) + ' mil/(м/с)'),
+        el('div', { class: 'k' }, '∂drift/∂ветер'),
+        el('div', { class: 'v' }, fmt(dDrift_dW, 3) + ' mil/(м/с)'),
+        el('div', { class: 'k' }, 'Радиус цели'),
+        el('div', { class: 'v' }, fmt(r_mil, 2) + ' mil')
+      )
+    ));
+    const cnv = el('canvas', { width: 360, height: 360, style: 'display:block;margin:0 auto;background:#000;border:1px solid var(--border);border-radius:8px' });
+    out.appendChild(cnv);
+    const cx = 180, cy = 180;
+    // диапазон: max 3σ из эмпирического std
+    const xs = hits.map(h => h.x), ys = hits.map(h => h.y);
+    const maxR = Math.max(...xs.map(Math.abs), ...ys.map(Math.abs), r_mil * 1.2);
+    const k = 160 / Math.max(maxR, 0.1);
+    const ctx = cnv.getContext('2d');
+    // цель
+    ctx.strokeStyle = '#444'; ctx.lineWidth = 1;
+    for (const r of [r_mil, r_mil * 2, r_mil * 3]) {
+      ctx.beginPath(); ctx.arc(cx, cy, r * k, 0, 2 * Math.PI); ctx.stroke();
+    }
+    ctx.strokeStyle = '#666'; ctx.beginPath(); ctx.moveTo(20, cy); ctx.lineTo(340, cy); ctx.moveTo(cx, 20); ctx.lineTo(cx, 340); ctx.stroke();
+    // точки
+    for (const h of hits) {
+      const inT = Math.hypot(h.x, h.y) <= r_mil;
+      ctx.fillStyle = inT ? '#4ade80' : '#ff8b3d';
+      ctx.fillRect(cx + h.x * k - 1, cy + h.y * k - 1, 2, 2);
+    }
+    ctx.fillStyle = '#fff'; ctx.font = '10px monospace';
+    ctx.fillText('mil', 340 - 18, cy - 4);
+    ctx.fillText('mil', cx + 4, 28);
+  });
+  view.appendChild(f);
+  view.appendChild(out);
+});
+
+// ============== GROUP ANALYZER (Wave 3.4) ==============
+route('/group-analyzer', async () => {
+  setHeader({ title: 'Анализ кучности' });
+  view.appendChild(el('div', { class: 'banner' },
+    'Загрузи фото мишени → задай 2 калибровочные точки с известной длиной → тапни пробоины. Получишь Mean Radius / Extreme Spread в см и MOA.'));
+  const card = el('div', { class: 'card' });
+  view.appendChild(card);
+  let mode = 'idle';
+  let imgEl = null, displayScale = 1;
+  let cal = { p1: null, p2: null, lenCm: 10 };
+  const shots = [];
+  let dist_m = 100;
+
+  const controls = el('div', { class: 'row-btn', style: 'flex-wrap:wrap;gap:6px' });
+  card.appendChild(controls);
+  const cnv = el('canvas', { style: 'display:block;max-width:100%;border:1px solid var(--border);border-radius:8px;background:#000;margin-top:8px' });
+  card.appendChild(cnv);
+  const stats = el('div', { class: 'kv', style: 'margin-top:10px;font-size:14px' });
+  card.appendChild(stats);
+
+  function draw() {
+    if (!imgEl) return;
+    const ctx = cnv.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,cnv.width,cnv.height);
+    ctx.drawImage(imgEl, 0, 0, cnv.width, cnv.height);
+    // калибровочные точки
+    if (cal.p1) { ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cal.p1.x, cal.p1.y, 8, 0, 2*Math.PI); ctx.stroke(); }
+    if (cal.p2) { ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cal.p2.x, cal.p2.y, 8, 0, 2*Math.PI); ctx.stroke(); }
+    if (cal.p1 && cal.p2) {
+      ctx.strokeStyle = '#67e8f9'; ctx.setLineDash([5,5]); ctx.beginPath();
+      ctx.moveTo(cal.p1.x, cal.p1.y); ctx.lineTo(cal.p2.x, cal.p2.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // пробоины
+    ctx.fillStyle = '#ff8b3d'; ctx.strokeStyle = '#fff';
+    shots.forEach((s, i) => {
+      ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, 2*Math.PI); ctx.fill();
+      ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, 2*Math.PI); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px monospace';
+      ctx.fillText(String(i+1), s.x + 8, s.y - 8);
+      ctx.fillStyle = '#ff8b3d';
+    });
+    if (shots.length >= 2 && cal.p1 && cal.p2) {
+      // центр группы
+      const cx0 = shots.reduce((s,p)=>s+p.x,0)/shots.length;
+      const cy0 = shots.reduce((s,p)=>s+p.y,0)/shots.length;
+      ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx0, cy0, 4, 0, 2*Math.PI); ctx.stroke();
+    }
+    refreshStats();
+  }
+  function refreshStats() {
+    stats.innerHTML = '';
+    if (!cal.p1 || !cal.p2 || shots.length < 2) {
+      stats.appendChild(el('div', { class: 'k' }, 'Статус'));
+      stats.appendChild(el('div', { class: 'v muted' },
+        !cal.p1 || !cal.p2 ? 'Задай 2 калибровочные точки' : 'Поставь хотя бы 2 пробоины'));
+      return;
+    }
+    const dpx = Math.hypot(cal.p2.x - cal.p1.x, cal.p2.y - cal.p1.y);
+    const cmPerPx = cal.lenCm / dpx;
+    const cx0 = shots.reduce((s,p)=>s+p.x,0)/shots.length;
+    const cy0 = shots.reduce((s,p)=>s+p.y,0)/shots.length;
+    const radii_cm = shots.map(s => Math.hypot(s.x - cx0, s.y - cy0) * cmPerPx);
+    const meanR = radii_cm.reduce((s,r)=>s+r,0) / radii_cm.length;
+    // ES = max pairwise distance
+    let es = 0;
+    for (let i = 0; i < shots.length; i++) for (let j = i+1; j < shots.length; j++) {
+      const dd = Math.hypot(shots[i].x - shots[j].x, shots[i].y - shots[j].y) * cmPerPx;
+      if (dd > es) es = dd;
+    }
+    const moaFactor = (cm) => (cm * 10) / dist_m / (2.908882); // 1 MOA = 2.908882 cm at 100m → cm/m / 2.908... wait
+    // 1 MOA ≈ 2.908 см на 100м → на расстоянии R(м) → 2.908 * R/100 см/MOA
+    const moaPerCm = 100 / (2.908882 * dist_m);
+    const milPerCm = 1000 / (dist_m * 100); // 1 mil = R/1000 м = R*100/1000 см → cm to mil: cm * (1/((R/1000)*100)) = cm*10/R
+    stats.appendChild(el('div', { class: 'k' }, 'N'));
+    stats.appendChild(el('div', { class: 'v' }, String(shots.length)));
+    stats.appendChild(el('div', { class: 'k' }, 'Mean Radius'));
+    stats.appendChild(el('div', { class: 'v' }, fmt(meanR,2) + ' см · ' + fmt(meanR*moaPerCm,2) + ' MOA · ' + fmt(meanR*milPerCm,2) + ' mil'));
+    stats.appendChild(el('div', { class: 'k' }, 'Extreme Spread'));
+    stats.appendChild(el('div', { class: 'v' }, fmt(es,2) + ' см · ' + fmt(es*moaPerCm,2) + ' MOA · ' + fmt(es*milPerCm,2) + ' mil'));
+    stats.appendChild(el('div', { class: 'k' }, 'Дистанция'));
+    stats.appendChild(el('div', { class: 'v' }, dist_m + ' м'));
+  }
+  controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+    try {
+      const dataUrl = await pickImageDataUrl();
+      if (!dataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        const maxW = Math.min(window.innerWidth - 60, 720);
+        const w = Math.min(img.naturalWidth, maxW);
+        const sc = w / img.naturalWidth;
+        cnv.width = w; cnv.height = img.naturalHeight * sc;
+        displayScale = sc;
+        imgEl = img;
+        cal = { p1: null, p2: null, lenCm: cal.lenCm };
+        shots.length = 0;
+        mode = 'cal1';
+        toast('Тапни первую калибровочную точку');
+        draw();
+      };
+      img.src = dataUrl;
+    } catch (e) { toast('Ошибка: ' + e.message); }
+  }}, '📷 Фото'));
+  controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    const v = prompt('Длина калибровочного отрезка, см', cal.lenCm);
+    const n = parseFloat(v);
+    if (isFinite(n) && n > 0) { cal.lenCm = n; refreshStats(); toast('Длина: ' + n + ' см'); }
+  }}, '📏 Длина отрезка'));
+  controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    const v = prompt('Дистанция стрельбы, м', dist_m);
+    const n = parseFloat(v);
+    if (isFinite(n) && n > 0) { dist_m = n; refreshStats(); }
+  }}, '🎯 Дистанция'));
+  controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    if (shots.length) { shots.pop(); draw(); }
+    else if (cal.p2) { cal.p2 = null; mode = 'cal2'; draw(); }
+    else if (cal.p1) { cal.p1 = null; mode = 'cal1'; draw(); }
+  }}, '↶ Отменить'));
+  controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    shots.length = 0; draw();
+  }}, '✕ Очистить пробоины'));
+  cnv.addEventListener('click', (e) => {
+    if (!imgEl) return;
+    const r = cnv.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * cnv.width;
+    const y = (e.clientY - r.top) / r.height * cnv.height;
+    if (!cal.p1) { cal.p1 = {x,y}; mode = 'cal2'; toast('Тапни вторую точку'); }
+    else if (!cal.p2) { cal.p2 = {x,y}; mode = 'shots'; toast('Теперь тапай пробоины'); }
+    else { shots.push({x,y}); }
+    draw();
+  });
+});
+
+// ============== COMPARE RELOADS (Wave 3.5) ==============
+route('/compare', async () => {
+  setHeader({ title: 'Сравнение релоадов' });
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  if (!cartridges.length) {
+    view.appendChild(el('div', { class: 'banner' }, 'Нет ни одного патрона.'));
+    return;
+  }
+  const f = el('form', { class: 'card' });
+  f.appendChild(el('h2', {}, 'Выбери патроны для сравнения'));
+  const checks = el('div');
+  cartridges.forEach(c => {
+    const cb = el('label', { class: 'checkbox' },
+      el('input', { type: 'checkbox', name: 'pick_' + c.id, value: c.id }),
+      el('span', { class: 'lbl' }, c.name || c.id,
+        el('span', { class: 'sub' }, `BC ${c.bc} ${c.dragModel||'G1'} · V₀ ${c.v0} · ${c.bulletMass_gr||'?'} gr`))
+    );
+    checks.appendChild(cb);
+  });
+  f.appendChild(checks);
+  f.appendChild(el('hr'));
+  f.appendChild(selectInput('weaponId', 'Оружие', '',
+    weapons.map(w => ({ value: w.id, label: w.name }))));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('tempC', 'Темп., °C', 15),
+    numInput('pressureMbar', 'Давл., гПа', 1013)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('windSpeed', 'Ветер, м/с', 3),
+    numInput('windAngle_deg', 'Угол, °', 90)
+  ));
+  f.appendChild(textInput('distances', 'Дистанции (через запятую, м)', '200, 400, 600, 800, 1000'));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сравнить'));
+  const out = el('div');
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = readForm(f);
+    const ids = cartridges.filter(c => f['pick_' + c.id]?.checked).map(c => c.id);
+    if (ids.length < 2) { toast('Выбери минимум 2 патрона'); return; }
+    const w = weapons.find(x => x.id === d.weaponId);
+    const dists = (d.distances || '').split(/[,\s]+/).map(s => parseFloat(s)).filter(n => n > 0);
+    if (!dists.length) { toast('Введи дистанции'); return; }
+    const results = ids.map(id => {
+      const c = cartridges.find(x => x.id === id);
+      const sol = Ballistics.solve(buildSolverInputFor(w, c, dists, {
+        tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: 50,
+        windSpeed: d.windSpeed, windAngle_deg: d.windAngle_deg
+      }));
+      return { c, sol };
+    });
+    out.innerHTML = '';
+    const tbl = el('table', { class: 'table' });
+    const head = '<thead><tr><th>Дист., м</th>' +
+      results.map(r => `<th colspan="2">${r.c.name || r.c.id}<br><span style="font-size:10px;color:var(--muted)">drop · drift, mil</span></th>`).join('') +
+      '</tr></thead>';
+    tbl.appendChild(h(head));
+    const tb = el('tbody');
+    dists.forEach((dist, i) => {
+      const tr = el('tr');
+      tr.appendChild(h(`<td><b>${dist}</b></td>`));
+      results.forEach(r => {
+        const row = r.sol.rows[i];
+        tr.appendChild(h(`<td>${row ? fmt(row.drop_mil,2) : '—'}</td>`));
+        tr.appendChild(h(`<td>${row ? fmt(row.drift_mil,2) : '—'}</td>`));
+      });
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    out.appendChild(el('div', { class: 'card', style: 'overflow-x:auto' }, tbl));
+  });
+  view.appendChild(f);
+  view.appendChild(out);
+});
+
+// ============== PRS STAGES (Wave 4.1) ==============
+route('/stages', async () => {
+  setHeader({ title: 'PRS стейджи' });
+  const items = await Store.getAll('stages') ?? [];
+  if (!items.length) view.appendChild(el('div', { class: 'banner' }, 'Стейджей нет.'));
+  for (const s of items) {
+    view.appendChild(el('a', { class: 'list-item', href: '#/stage/' + s.id },
+      el('div', { class: 'ttl' }, s.name || 'Стейдж'),
+      el('div', { class: 'sub' }, `${(s.targets || []).length} целей · ${s.timeLimit_s || '—'} с`)
+    ));
+  }
+  view.appendChild(el('a', { class: 'fab', href: '#/stage/new' }, '+'));
+});
+route('/stage/:id', async ({ id }) => {
+  const isNew = id === 'new';
+  const s = isNew ? { id: Store.uid(), targets: [] } : await Store.get('stages', id);
+  if (!s) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
+  setHeader({ title: isNew ? 'Новый стейдж' : (s.name || 'Стейдж') });
+  const f = el('form', { class: 'card' });
+  f.appendChild(textInput('name', 'Название', s.name, { required: true }));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('timeLimit_s', 'Лимит времени, с', s.timeLimit_s ?? 90),
+    numInput('roundCount', 'Патронов', s.roundCount ?? 10)
+  ));
+  f.appendChild(el('label', { for: 'description' }, 'Описание стейджа'));
+  f.appendChild(el('textarea', { id: 'description', name: 'description' }, s.description || ''));
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Цели'));
+  const tgtsBox = el('div');
+  f.appendChild(tgtsBox);
+  const targets = (s.targets || []).slice();
+  function renderTargets() {
+    tgtsBox.innerHTML = '';
+    targets.forEach((t, i) => {
+      const row = el('div', { class: 'card', style: 'padding:8px;margin-bottom:6px' });
+      row.appendChild(el('div', { style: 'display:flex;gap:6px;align-items:center' },
+        el('div', { style: 'min-width:24px;font-weight:600;color:var(--accent)' }, String(i + 1)),
+        el('input', { type: 'text', value: t.name || '', placeholder: 'Имя цели',
+          oninput: (e) => { targets[i].name = e.target.value; } }),
+      ));
+      row.appendChild(el('div', { class: 'row' },
+        el('input', { type: 'number', placeholder: 'Дист., м', value: t.range ?? '',
+          oninput: (e) => { targets[i].range = parseFloat(e.target.value); } }),
+        el('input', { type: 'number', placeholder: 'Размер, см', value: t.size_cm ?? '',
+          oninput: (e) => { targets[i].size_cm = parseFloat(e.target.value); } }),
+        el('button', { type: 'button', class: 'btn danger', style: 'margin-top:0',
+          onclick: () => { targets.splice(i, 1); renderTargets(); } }, '×')
+      ));
+      tgtsBox.appendChild(row);
+    });
+    if (!targets.length) tgtsBox.appendChild(el('div', { class: 'muted center' }, 'Нет целей'));
+  }
+  renderTargets();
+  f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+    targets.push({ name: 'Цель ' + (targets.length + 1), range: 300, size_cm: 30 });
+    renderTargets();
+  }}, '+ Добавить цель'));
+
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
+  if (!isNew) {
+    f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+      const json = JSON.stringify({ ...s, targets });
+      try {
+        if (navigator.share) await navigator.share({ title: s.name, text: json });
+        else { await navigator.clipboard.writeText(json); toast('Скопировано в буфер'); }
+      } catch (e) { toast(e.message); }
+    }}, '↗ Поделиться JSON'));
+    f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
+      if (confirm('Удалить?')) { await Store.del('stages', id); location.hash = '#/stages'; }
+    }}, 'Удалить'));
+  }
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const d = readForm(f);
+    await Store.put('stages', { ...s, ...d, targets });
+    toast('Сохранено'); location.hash = '#/stages';
+  });
+  view.appendChild(f);
+});
+
+// ============== MV TEMP TABLE (Wave 4.2) — в форме патрона добавим textarea ==============
+// (UI добавлен ниже как in-place extension; здесь хранение — массив {tempC, v0} в cart.mvTempTable)
+// Solve использует это вместо линейного v0_tempSens_mps_per_C если присутствует.
+// (Используется через хелпер ниже в submit-handler'е — см. ниже)
+
+// ============== DRAG BUILDER из DOPE (Wave 4.3) ==============
+route('/drag-builder', async () => {
+  setHeader({ title: 'Drag из DOPE' });
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  if (!cartridges.length || !weapons.length) {
+    view.appendChild(el('div', { class: 'banner' }, 'Нужно ≥1 оружие и ≥1 патрон.'));
+    return;
+  }
+  view.appendChild(el('div', { class: 'banner' },
+    'Вставь DOPE-таблицу «дистанция, факт. mil» по строкам — приложение подберёт BC× для каждой точки (Litz banding) и запишет в патрон.'));
+  const f = el('form', { class: 'card' });
+  f.appendChild(selectInput('weaponId', 'Оружие', '', weapons.map(w => ({ value: w.id, label: w.name }))));
+  f.appendChild(selectInput('cartridgeId', 'Патрон', '', cartridges.map(c => ({ value: c.id, label: c.name }))));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('tempC', 'Темп., °C', 15),
+    numInput('pressureMbar', 'Давл., гПа', 1013)
+  ));
+  f.appendChild(el('label', { for: 'dope' }, 'DOPE — «дист., факт.mil» по строкам'));
+  f.appendChild(el('textarea', { id: 'dope', name: 'dope',
+    placeholder: '300, 1.2\n500, 3.4\n800, 7.1\n1000, 10.8' }));
+  f.appendChild(el('label', { class: 'checkbox' },
+    el('input', { type: 'checkbox', name: 'replace' }),
+    el('span', { class: 'lbl' }, 'Очистить существующие точки перед добавлением')));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Подобрать и записать'));
+  const out = el('div');
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = readForm(f);
+    const c = cartridges.find(x => x.id === d.cartridgeId);
+    const w = weapons.find(x => x.id === d.weaponId);
+    if (!c || !w) { toast('Выбери оружие и патрон'); return; }
+    const lines = (d.dope || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const points = lines.map(line => {
+      const [r, m] = line.split(/[,\s]+/).map(parseFloat);
+      return (isFinite(r) && isFinite(m) && r > 0) ? { range: r, mil: m } : null;
+    }).filter(Boolean);
+    if (!points.length) { toast('Не разобрал ни одной строки'); return; }
+    out.innerHTML = '';
+    const startingPoints = (d.replace ? [] : (c.truingPoints || [])).slice();
+    let working = { ...c, truingPoints: startingPoints };
+    const added = [];
+    points.forEach(pt => {
+      const inp = buildSolverInputFor(w, working, [pt.range], {
+        tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: 50, windSpeed: 0
+      });
+      const p = Ballistics.addTruingPoint(inp, pt.mil, pt.range);
+      if (p && isFinite(p.bcFactor)) {
+        const filtered = working.truingPoints.filter(x => Math.abs(x.machAt - p.machAt) > 0.05);
+        working = { ...working, truingPoints: [...filtered, { ...p, addedAt: new Date().toISOString() }] };
+        added.push({ ...p, observedMil: pt.mil });
+      }
+    });
+    out.appendChild(el('div', { class: 'card' },
+      el('h2', {}, 'Подобрано ' + added.length + ' точек'),
+      ...added.map(a => el('div', { class: 'kv', style: 'font-size:13px' },
+        el('div', { class: 'k' }, fmt(a.range_m, 0) + ' м'),
+        el('div', { class: 'v' }, `Mach ${fmt(a.machAt,2)} · BC× ${fmt(a.bcFactor,3)}`)
+      )),
+      el('button', { type: 'button', class: 'btn',
+        onclick: async () => {
+          await Store.put('cartridges', { ...c, truingPoints: working.truingPoints });
+          toast('Сохранено в патроне'); location.hash = '#/cartridge/' + c.id;
+        }}, '💾 Записать в патрон')
+    ));
+  });
+  view.appendChild(f);
+  view.appendChild(out);
+});
+
+// ============== LONG-PRESS TOOLTIPS (Wave 4.4) ==============
+const FIELD_HELP = {
+  bc: 'Баллистический коэффициент (BC, lb/in²). Чем больше — тем меньше торможение. Берётся из таблицы производителя или подбирается через Truing.',
+  dragModel: 'G1 — стандарт для большинства спортивных и охотничьих пуль. G7 — для современных пуль с длинным боттейлом (Berger, ELD-M, Scenar).',
+  v0: 'Начальная скорость пули (м/с) при выходе из ствола. Измеряется хронографом.',
+  bulletMass_gr: 'Масса пули в гранах (gr). 1 gr = 0.0648 г.',
+  bulletLength_in: 'Длина пули в дюймах — нужна для расчёта стабильности по Миллеру.',
+  caliber_in: 'Калибр в дюймах: 6.5 mm = 0.264", .308 = 0.308".',
+  twist_in: 'Шаг нарезов: «1 поворот за N дюймов». Меньше число → быстрее закрутка → выше стабильность тяжёлых пуль.',
+  sightHeight_mm: 'Высота линии прицеливания над осью канала ствола (мм). Обычно 35–50 мм для скоп с верхним рычагом.',
+  zeroDistance: 'Дистанция, на которую пристрелян прицел (м).',
+  windSpeed: 'Скорость ветра (м/с). Полевая оценка: листва шевелится ≈1–2 м/с, ветви качаются ≈4–6 м/с.',
+  windAngle_deg: 'Угол ветра относительно линии стрельбы. 0° = попутный (в спину), 90° = справа, 180° = встречный, 270° = слева.',
+  windSpeed2: 'Второй ветер — для участков траектории, где ветер другой (ущелье, край леса). HUD покажет вторую колонку поправки.',
+  windAngle_deg2: 'Угол второго ветра (см. подсказку «Ветер 2»).',
+  tempC: 'Температура воздуха (°C). Влияет на плотность воздуха и через неё на сопротивление.',
+  pressureMbar: 'Атмосферное давление (мбар = гПа). Важно: НЕ привести к уровню моря — нужно ФАКТИЧЕСКОЕ давление на стрельбище.',
+  humidity: 'Относительная влажность (%). Влияет слабо, но при высокой жаре заметно.',
+  shotAngle_deg: 'Угол места (наклон стрельбы). Положительный = вверх. Уменьшает эффективную просадку.',
+  cant_deg: 'Завал винтовки от вертикали. Положительный — наклон вправо. На 1000 м даже 3° дают сантиметры смещения.',
+  ammoTempC: 'Температура боеприпаса. V₀ зависит от темп. пороха: чем теплее — тем быстрее (~0.3–0.7 м/с/°C для несокращ. порохов).',
+  latitude_deg: 'Широта точки стрельбы (для эффекта Кориолиса). На дистанциях <800 м влияет слабо.',
+  azimuth_deg: 'Азимут выстрела (для Кориолиса). 0° = на север, 90° = на восток.'
+};
+(function setupLongPressHelp() {
+  let timer = null, target = null;
+  document.addEventListener('touchstart', (e) => {
+    const lbl = e.target.closest('label');
+    if (!lbl) return;
+    const forName = lbl.getAttribute('for');
+    const help = forName && FIELD_HELP[forName];
+    if (!help) return;
+    target = { lbl, help };
+    timer = setTimeout(() => {
+      navigator.vibrate?.(20);
+      openSheet((sheet, close) => {
+        sheet.appendChild(el('h3', {}, lbl.textContent));
+        sheet.appendChild(el('div', { class: 'muted', style: 'line-height:1.5;font-size:14px' }, help));
+        sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close }, 'Понял'));
+      });
+      timer = null;
+    }, 600);
+  }, { passive: true });
+  document.addEventListener('touchend',   () => { if (timer) clearTimeout(timer); timer = null; });
+  document.addEventListener('touchmove',  () => { if (timer) clearTimeout(timer); timer = null; });
+  document.addEventListener('touchcancel',() => { if (timer) clearTimeout(timer); timer = null; });
+})();
+
+// ============== RANGE CARD (Wave 4.5) ==============
+route('/range-card', async () => {
+  setHeader({ title: 'Range Card' });
+  const cartridges = await Store.getAll('cartridges');
+  const weapons = await Store.getAll('weapons');
+  if (!cartridges.length || !weapons.length) {
+    view.appendChild(el('div', { class: 'banner' }, 'Нужно ≥1 оружие и ≥1 патрон.'));
+    return;
+  }
+  view.appendChild(el('div', { class: 'banner' },
+    'Сформирует печатную таблицу с поправками — для наклейки на ложе или скотча на прикладе.'));
+  const f = el('form', { class: 'card no-print' });
+  f.appendChild(selectInput('weaponId', 'Оружие', '', weapons.map(w => ({ value: w.id, label: w.name }))));
+  f.appendChild(selectInput('cartridgeId', 'Патрон', '', cartridges.map(c => ({ value: c.id, label: c.name }))));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('tempC', 'Темп., °C', 15),
+    numInput('pressureMbar', 'Давл., гПа', 1013)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('humidity', 'Влажн., %', 50),
+    numInput('windSpeed', 'Ветер для столбца, м/с', 3)
+  ));
+  f.appendChild(textInput('distances', 'Дистанции (через запятую)',
+    '100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200'));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сформировать'));
+  const out = el('div', { class: 'range-card-out' });
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = readForm(f);
+    const c = cartridges.find(x => x.id === d.cartridgeId);
+    const w = weapons.find(x => x.id === d.weaponId);
+    if (!c || !w) { toast('Выбери патрон и оружие'); return; }
+    const dists = (d.distances || '').split(/[,\s]+/).map(s => parseFloat(s)).filter(n => n > 0);
+    const sol = Ballistics.solve(buildSolverInputFor(w, c, dists, {
+      tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity,
+      windSpeed: d.windSpeed, windAngle_deg: 90
+    }));
+    out.innerHTML = '';
+    const card = el('div', { class: 'range-card' });
+    card.appendChild(el('div', { class: 'rc-head' },
+      el('div', { class: 'rc-title' }, (w.name || '—') + ' · ' + (c.name || '—')),
+      el('div', { class: 'rc-sub' },
+        `V₀ ${c.v0} · BC ${c.bc} ${c.dragModel||'G1'} · ` +
+        `T ${d.tempC}°C · P ${d.pressureMbar} гПа · RH ${d.humidity}% · ветер ${d.windSpeed} м/с @ 90°`)
+    ));
+    const tbl = el('table', { class: 'rc-table' });
+    tbl.appendChild(h(`<thead><tr>
+      <th>м</th><th>mil</th><th>MOA</th><th>см</th><th>ветер mil</th><th>V м/с</th><th>tof с</th>
+    </tr></thead>`));
+    const tb = el('tbody');
+    sol.rows.forEach(r => {
+      tb.appendChild(h(`<tr>
+        <td><b>${r.range}</b></td>
+        <td><b>${fmt(r.drop_mil,2)}</b></td>
+        <td>${fmt(r.drop_moa,1)}</td>
+        <td>${fmt(Math.abs(r.drop_m)*100,0)}</td>
+        <td>${fmt(r.drift_mil,2)}</td>
+        <td>${fmt(r.vel_mps,0)}</td>
+        <td>${fmt(r.tof_s,2)}</td>
+      </tr>`));
+    });
+    tbl.appendChild(tb);
+    card.appendChild(tbl);
+    out.appendChild(card);
+    out.appendChild(el('button', { type: 'button', class: 'btn no-print', onclick: () => window.print() }, '🖨 Печать / Сохранить PDF'));
+  });
+  view.appendChild(f);
+  view.appendChild(out);
 });
 
 // ============== boot ==============

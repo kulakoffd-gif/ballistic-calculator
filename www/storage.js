@@ -13,9 +13,9 @@
 //   notes      — универсальные заметки прикреплённые к сущностям (Wave 2)
 
 const DB_NAME = 'skyrange';
-const DB_VER = 3;
+const DB_VER = 4;
 const STORES = ['ranges', 'positions', 'targets', 'weapons', 'cartridges', 'sessions', 'hits', 'shots',
-                'reticles', 'bullets', 'casePreps', 'notes'];
+                'reticles', 'bullets', 'casePreps', 'notes', 'stages'];
 
 function openDB() {
   return new Promise((resolve, reject) => {
