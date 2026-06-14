@@ -215,11 +215,14 @@ DB: `skyrange`, version 3. Stores:
 
 **Подтверждение фикса**: SHA-256 подписи Wave 1c (`ba6e4b7`) и Wave 2-4 (`26692d7`) идентичны: `14038202d24363a7f2f9735d8a95105e6f430b411124f6a626111dbbc20d2151`.
 
-**Защита от потери данных** (`www/backup.js`):
-- Каждое изменение в IndexedDB через `Store.put`/`del`/`importAll` (debounced 2 сек) дублируется в `/storage/emulated/0/Documents/BalisticNote/backup.json` через Capacitor Filesystem с `Directory.Documents`.
-- Documents-папка переживает удаление приложения — файл остаётся.
-- На старте приложения: если IndexedDB пустая И бэкап-файл существует → confirm «Восстановить?».
-- В `/settings` — карточка «Авто-бэкап в /Documents» с кнопками «💾 Сохранить сейчас» и «⤵ Восстановить».
+**Защита от потери данных** (`www/backup.js` + `www/yadisk.js`):
+- Каждое изменение в IndexedDB через `Store.put`/`del`/`importAll` (debounced 2 сек) дублируется в `/storage/emulated/0/Documents/BalisticNote/backup.json` через Capacitor Filesystem с `Directory.Documents`. Documents-папка переживает удаление приложения.
+- Параллельно — best-effort upload на **Яндекс.Диск** в `/BalisticNote/backup.json` через REST API (`cloud-api.yandex.net`, OAuth-токен). Настройки в `/settings` → карточка «Яндекс.Диск».
+- На старте приложения: если IndexedDB пустая → проверяет Я.Диск (приоритет), потом локальный `/Documents` → confirm «Восстановить из X (N записей)?».
+- В `/settings` две карточки:
+  - «Авто-бэкап в /Documents» — кнопки «💾 Сохранить сейчас» и «⤵ Восстановить»
+  - «Яндекс.Диск» — Client ID + Access Token, кнопки «Проверить», «↑ Залить сейчас», «↓ Скачать и применить», «Отвязать», + раскрывающаяся инструкция по получению OAuth-токена (oauth.yandex.ru/client/new → права cloud_api:disk.write/read/info → implicit grant)
+- Я.Диск credentials хранятся в `localStorage` (`yadisk_token`, `yadisk_client_id`). НЕ попадают в экспорт IndexedDB.
 
 ---
 

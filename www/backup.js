@@ -52,12 +52,21 @@ async function exists() {
   } catch { return false; }
 }
 
-async function restore() {
-  const payload = await read();
+async function restore(source = 'auto') {
+  // source: 'yandex' | 'local' | 'auto' (сначала Я.Диск, потом локальный)
+  let payload = null, from = null;
+  if (source === 'yandex' || source === 'auto') {
+    payload = await downloadFromYandex();
+    if (payload) from = 'yandex';
+  }
+  if (!payload && (source === 'local' || source === 'auto')) {
+    payload = await read();
+    if (payload) from = 'local';
+  }
   if (!payload || !payload.data) return { ok: false, reason: 'no-backup' };
   try {
     await Store.importAll(payload);
-    return { ok: true, exportedAt: payload.exportedAt, version: payload.version };
+    return { ok: true, from, exportedAt: payload.exportedAt, version: payload.version };
   } catch (e) {
     return { ok: false, reason: e?.message || String(e) };
   }
@@ -73,16 +82,42 @@ async function isStoreEmpty() {
   } catch { return false; }
 }
 
+// Yandex.Disk best-effort sync (если Yadisk сконфигурирован)
+async function uploadToYandex() {
+  if (!window.Yadisk || !Yadisk.isConfigured()) return { ok: false, reason: 'no-token' };
+  try {
+    const payload = await Store.exportAll();
+    await Yadisk.uploadJSON(JSON.stringify(payload));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e?.message || String(e) };
+  }
+}
+
+async function downloadFromYandex() {
+  if (!window.Yadisk || !Yadisk.isConfigured()) return null;
+  try {
+    const txt = await Yadisk.downloadJSON();
+    return JSON.parse(txt);
+  } catch (e) {
+    console.warn('[backup/yandex] download:', e.message);
+    return null;
+  }
+}
+
 // — debounced auto-save: вызывать после каждого изменения —
 let saveTimer = null;
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    save().then(r => {
-      if (!r.ok && r.reason !== 'no-filesystem-plugin') {
-        console.warn('[backup] save failed:', r.reason);
-      }
-    });
+  saveTimer = setTimeout(async () => {
+    const r = await save();
+    if (!r.ok && r.reason !== 'no-filesystem-plugin') {
+      console.warn('[backup] save failed:', r.reason);
+    }
+    const ry = await uploadToYandex();
+    if (!ry.ok && ry.reason !== 'no-token') {
+      console.warn('[backup/yandex] upload failed:', ry.reason);
+    }
   }, 2000);
 }
 
@@ -98,4 +133,5 @@ function instrumentStore() {
   Store.__backupInstrumented = true;
 }
 
-window.Backup = { save, read, exists, restore, isStoreEmpty, instrumentStore };
+window.Backup = { save, read, exists, restore, isStoreEmpty, instrumentStore,
+                  uploadToYandex, downloadFromYandex };

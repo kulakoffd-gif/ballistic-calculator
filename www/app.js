@@ -3789,6 +3789,107 @@ route('/settings', async () => {
     view.appendChild(backupCard);
   }
 
+  // — Яндекс.Диск sync —
+  if (window.Yadisk) {
+    const ydCard = el('div', { class: 'card' });
+    ydCard.appendChild(el('h2', {}, 'Яндекс.Диск — авто-синхронизация'));
+    const ydStatus = el('div', { class: 'muted center', style: 'font-size:12px;margin:6px 0' }, '…');
+    ydCard.appendChild(ydStatus);
+    ydCard.appendChild(el('div', { class: 'banner' },
+      'После настройки каждое изменение базы данных дублируется в /BalisticNote/backup.json на твоём Яндекс.Диске. ' +
+      'При установке приложения на другой телефон или после переустановки — данные подтянутся автоматически.'));
+
+    // — поле Client ID —
+    const cidInp = el('input', { type: 'text', placeholder: '12 знаков из oauth.yandex.ru', value: Yadisk.getClientId() });
+    ydCard.appendChild(el('label', { for: '' }, 'Client ID (OAuth-приложение)'));
+    ydCard.appendChild(cidInp);
+    cidInp.addEventListener('change', () => Yadisk.setClientId(cidInp.value.trim()));
+
+    // — кнопка получить токен —
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+      const cid = cidInp.value.trim();
+      if (!cid) { toast('Сначала укажи Client ID'); return; }
+      Yadisk.setClientId(cid);
+      const url = Yadisk.getAuthUrl();
+      window.open(url, '_blank');
+      toast('Откроется страница Яндекса. Разреши доступ и скопируй access_token из URL.');
+    }}, '🔑 Получить токен на oauth.yandex.ru'));
+
+    // — поле токена —
+    const tokInp = el('input', { type: 'password', placeholder: 'y0_AgAAAA... (вставь сюда)', value: Yadisk.getToken() });
+    ydCard.appendChild(el('label', { for: '' }, 'Access Token'));
+    ydCard.appendChild(tokInp);
+
+    // — кнопки —
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+      Yadisk.setToken(tokInp.value.trim());
+      try {
+        const i = await Yadisk.info();
+        toast(`Подключён: ${i.user?.display_name || i.user?.login || 'OK'} (${(i.used_space/1e9).toFixed(2)} / ${(i.total_space/1e9).toFixed(0)} ГБ занято)`);
+        refreshYD();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }}, '✅ Проверить токен'));
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+      if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
+      try {
+        const r = await Backup.uploadToYandex();
+        if (r.ok) toast('Залито на Я.Диск');
+        else toast('Ошибка: ' + r.reason);
+        refreshYD();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }}, '↑ Залить на Я.Диск сейчас'));
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+      if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
+      if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
+      try {
+        const r = await Backup.restore('yandex');
+        if (r.ok) { toast('Восстановлено с Я.Диска'); navigate(); }
+        else toast('Ошибка: ' + r.reason);
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }}, '↓ Скачать и применить с Я.Диска'));
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: () => {
+      if (!confirm('Удалить локальные настройки Я.Диска (токен и client_id)?')) return;
+      Yadisk.setToken(''); Yadisk.setClientId('');
+      tokInp.value = ''; cidInp.value = '';
+      toast('Сброшено'); refreshYD();
+    }}, 'Отвязать'));
+
+    // — инструкция —
+    ydCard.appendChild(el('details', { style: 'margin-top:10px' },
+      el('summary', { style: 'cursor:pointer;color:var(--accent);font-size:13px' }, '📖 Как один раз настроить (≈2 минуты)'),
+      el('div', { style: 'font-size:12px;color:var(--muted);line-height:1.6;padding:8px 0' },
+        h(`<ol style="margin:0;padding-left:18px;">
+          <li>Открой в браузере <b>oauth.yandex.ru/client/new</b></li>
+          <li>Название — «BalisticNote backup», платформа — «Веб-сервисы»</li>
+          <li>Redirect URI: <code>https://oauth.yandex.ru/verification_code</code></li>
+          <li>Доступ: «Яндекс.Диск REST API» → отметь <code>cloud_api:disk.write</code>, <code>cloud_api:disk.read</code>, <code>cloud_api:disk.info</code></li>
+          <li>Создай приложение → скопируй <b>Client ID</b> в поле выше</li>
+          <li>Тапни «🔑 Получить токен», разреши доступ — после редиректа URL будет содержать <code>access_token=y0_...</code></li>
+          <li>Скопируй значение токена и вставь в поле «Access Token» → «✅ Проверить»</li>
+          <li>Готово — каждое изменение БД будет уходить на Я.Диск автоматически</li>
+        </ol>`))
+    ));
+
+    async function refreshYD() {
+      try {
+        if (!Yadisk.isConfigured()) {
+          ydStatus.textContent = 'Не настроен — введи Client ID и токен ниже';
+          return;
+        }
+        const stat = await Yadisk.statBackup();
+        if (stat) {
+          const when = new Date(stat.modified).toLocaleString();
+          const kb = (stat.size / 1024).toFixed(1) + ' KB';
+          ydStatus.textContent = `✓ /BalisticNote/backup.json · ${kb} · обновлён ${when}`;
+        } else {
+          ydStatus.textContent = '✓ токен валиден, но файла бэкапа ещё нет';
+        }
+      } catch (e) { ydStatus.textContent = 'Ошибка: ' + e.message; }
+    }
+    refreshYD();
+    view.appendChild(ydCard);
+  }
+
   view.appendChild(el('div', { class: 'card' },
     el('h2', {}, 'О приложении'),
     el('div', { class: 'muted', style: 'line-height:1.5' },
@@ -4689,16 +4790,27 @@ route('/range-card', async () => {
   if (window.Backup) {
     Backup.instrumentStore();
     try {
-      if (await Backup.isStoreEmpty() && await Backup.exists()) {
-        const payload = await Backup.read();
-        const total = payload && payload.data
-          ? Object.values(payload.data).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0) : 0;
-        if (total > 0 && confirm(
-          `Найден бэкап в /Documents/BalisticNote (${total} записей, сохранён ${payload.exportedAt?.slice(0,16) || '—'}).\n\nВосстановить базу данных?`
-        )) {
-          const r = await Backup.restore();
-          if (r.ok) toast('База восстановлена из бэкапа');
-          else toast('Ошибка восстановления: ' + r.reason);
+      const empty = await Backup.isStoreEmpty();
+      if (empty) {
+        // 1. Сначала пытаемся Я.Диск
+        let payload = null, source = null;
+        if (window.Yadisk && Yadisk.isConfigured()) {
+          payload = await Backup.downloadFromYandex();
+          if (payload) source = 'Я.Диск';
+        }
+        // 2. Локальный Documents
+        if (!payload && await Backup.exists()) {
+          payload = await Backup.read();
+          if (payload) source = '/Documents';
+        }
+        if (payload && payload.data) {
+          const total = Object.values(payload.data).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
+          if (total > 0 && confirm(
+            `Найден бэкап (${source}, ${total} записей, ${payload.exportedAt?.slice(0,16) || '—'}).\n\nВосстановить базу данных?`
+          )) {
+            try { await Store.importAll(payload); toast('База восстановлена из ' + source); }
+            catch (e) { toast('Ошибка восстановления: ' + e.message); }
+          }
         }
       }
     } catch (e) { console.warn('[boot/backup]', e); }
