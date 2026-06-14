@@ -2067,42 +2067,58 @@ route('/calc', async () => {
       mainGrid.appendChild(driftAxis);
     }
 
-    function renderStepper() {
+    // — Дистанция: тап → очищается + цифровая клавиатура. Отмена → старое значение —
+    function renderDistanceEditor() {
       stepperRow.innerHTML = '';
-      stepperRow.appendChild(el('button', { type: 'button', class: 'step', onclick: () => {
-        bigDist = Math.max(0, bigDist - stepSize);
-        localStorage.setItem('calc:bigDist', String(bigDist));
-        flashZeroReminder(bigDist);
-        renderBig();
-        rangeInp.value = bigDist;
-      }}, '−'));
-      const rangeInp = el('input', { class: 'range-input', type: 'number', inputmode: 'numeric', value: bigDist });
-      rangeInp.addEventListener('input', () => {
-        const v = parseFloat(rangeInp.value);
+      let savedDist = bigDist;
+      const inp = el('input', {
+        class: 'range-input',
+        type: 'number', inputmode: 'numeric', pattern: '[0-9]*',
+        value: bigDist
+      });
+      const unit = el('span', { class: 'range-unit' }, 'м');
+      const cancelBtn = el('button', { type: 'button', class: 'range-cancel', hidden: true }, 'Отмена');
+
+      inp.addEventListener('focus', () => {
+        savedDist = bigDist;
+        inp.value = '';
+        cancelBtn.hidden = false;
+      });
+      inp.addEventListener('input', () => {
+        const v = parseFloat(inp.value);
         if (isFinite(v) && v > 0) {
           bigDist = v;
           localStorage.setItem('calc:bigDist', String(bigDist));
           renderBig();
         }
       });
-      stepperRow.appendChild(rangeInp);
-      stepperRow.appendChild(el('button', { type: 'button', class: 'step', onclick: () => {
-        bigDist = bigDist + stepSize;
+      inp.addEventListener('blur', () => {
+        // если поле пустое или невалидное — вернём saved
+        const v = parseFloat(inp.value);
+        if (!isFinite(v) || v <= 0) {
+          bigDist = savedDist;
+          inp.value = bigDist;
+          renderBig();
+        } else if (v !== savedDist) {
+          flashZeroReminder(bigDist);
+        }
+        cancelBtn.hidden = true;
+      });
+      cancelBtn.addEventListener('mousedown', e => e.preventDefault()); // не теряем фокус до click
+      cancelBtn.addEventListener('click', () => {
+        bigDist = savedDist;
+        inp.value = bigDist;
         localStorage.setItem('calc:bigDist', String(bigDist));
-        flashZeroReminder(bigDist);
         renderBig();
-        rangeInp.value = bigDist;
-      }}, '+'));
-      const stepBtn = el('button', { type: 'button', class: 'step-size', onclick: () => {
-        const opts = [10, 25, 50, 100, 200];
-        const i = opts.indexOf(stepSize);
-        stepSize = opts[(i + 1) % opts.length];
-        localStorage.setItem('calc:bigStep', String(stepSize));
-        stepBtn.textContent = '±' + stepSize + 'м';
-      }}, '±' + stepSize + 'м');
-      stepperRow.appendChild(stepBtn);
+        cancelBtn.hidden = true;
+        inp.blur();
+      });
+
+      stepperRow.appendChild(inp);
+      stepperRow.appendChild(unit);
+      stepperRow.appendChild(cancelBtn);
     }
-    renderStepper();
+    renderDistanceEditor();
     renderBig();
 
     // — параметры мелким kv —

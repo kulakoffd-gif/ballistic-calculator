@@ -303,29 +303,32 @@ label { text-align: center; }
 .dir-arrow.dim { color: var(--muted); opacity: 0.4; }
 
 /* ===== range stepper ===== */
+/* Дистанция: одно поле + единица + отмена */
 .range-stepper {
   display: flex; align-items: center; justify-content: center;
-  gap: 10px; margin-top: 14px;
+  gap: 8px; margin-top: 14px;
 }
-.range-stepper button.step {
-  width: 48px; height: 48px; border-radius: 50%;
-  background: var(--panel-2); border: 1.5px solid var(--accent);
-  color: var(--accent); font-size: 24px; font-weight: 600;
-  cursor: pointer; line-height: 1;
-}
-.range-stepper button.step:active { background: var(--accent); color: #1a0e05; }
 .range-stepper .range-input {
-  font-size: 24px; font-weight: 600; color: var(--accent);
-  text-align: center; width: 110px;
-  background: transparent; border: 0; border-bottom: 1px dashed var(--border);
-  font-variant-numeric: tabular-nums;
+  font-size: 30px; font-weight: 600; color: var(--accent);
+  text-align: center; width: 140px; padding: 8px 10px;
+  background: var(--field-bg); border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums; letter-spacing: 1px;
 }
-.range-stepper .step-size {
-  font-size: 11px; color: var(--muted); letter-spacing: 1.5px;
-  text-transform: uppercase; cursor: pointer; padding: 6px 10px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--panel);
+.range-stepper .range-input:focus {
+  background: #1a0e05; outline: 0; box-shadow: 0 0 0 3px rgba(255,139,61,.25);
 }
+.range-stepper .range-unit {
+  font-size: 16px; color: var(--accent-2); letter-spacing: 2px;
+  text-transform: uppercase; font-weight: 500;
+}
+.range-stepper .range-cancel {
+  background: var(--panel-2); border: 1px solid var(--bad);
+  color: var(--bad); padding: 8px 14px; border-radius: 10px;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  letter-spacing: 1px;
+}
+.range-stepper .range-cancel:active { background: var(--bad); color: #1a0e05; }
 
 /* ===== per-field источники данных ===== */
 .input-row { display: flex; gap: 4px; align-items: stretch; }
