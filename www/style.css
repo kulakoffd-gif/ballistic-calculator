@@ -257,6 +257,32 @@ input::placeholder { text-align: center; opacity: 0.5; }
   100% { opacity: 0; transform: scale(1.05); }
 }
 
+/* ===== AB Quantum-style HUD (верх — решение, низ — controllers) ===== */
+.calc-hud-area {
+  position: sticky;
+  top: calc(env(safe-area-inset-top) + 56px);
+  z-index: 8;
+  background: var(--bg);
+  margin: 0 -14px 0 -14px;   /* перекрыть padding main */
+  padding: 0 14px 8px 14px;
+  box-shadow: 0 6px 12px var(--bg);
+}
+.calc-hud-area .solution-card {
+  margin-bottom: 0;
+  padding: 14px 12px;
+}
+.calc-hud-area .axis .val { font-size: 44px; }
+.calc-hud-area .axis .sub-val { font-size: 12px; }
+.calc-hud-area .range-stepper { margin-top: 8px; }
+.calc-hud-area .range-stepper button.step { width: 40px; height: 40px; font-size: 20px; }
+.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 90px; }
+.calc-ctrl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+.calc-ctrl-tabs .chip { flex: 1; min-width: 0; text-align: center; }
+.calc-hint {
+  font-size: 11px; color: var(--muted); letter-spacing: 1px;
+  text-transform: uppercase; text-align: center; margin: 4px 0 8px;
+}
+
 /* ===== AB Quantum: стрелки направления у поправок ===== */
 .dir-arrow {
   display: inline-block; margin: 0 6px; font-size: 28px;

@@ -1907,10 +1907,8 @@ route('/calc', async () => {
       [srcGPSLat()]),
     numInput('azimuth_deg', 'Азимут к цели, °', state.azimuth_deg ?? 0)
   ));
-  form.appendChild(el('h2', {}, 'Дистанции'));
+  form.appendChild(el('h2', {}, 'Дистанции для таблицы'));
   form.appendChild(textInput('distances', 'через запятую, м', state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
-  form.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Рассчитать'));
-  form.appendChild(el('div', { id: 'result' }));
 
   form.weaponId.addEventListener('change', () => {
     const w = weapons.find(x => x.id === form.weaponId.value);
@@ -1955,7 +1953,7 @@ route('/calc', async () => {
       steps: distances
     };
     const res = Ballistics.solve(input);
-    const out = $('#result', form);
+    const out = $('#result');
     out.innerHTML = '';
     out.appendChild(el('hr'));
     // применяем сдвиг ко всем строкам
@@ -2124,8 +2122,24 @@ route('/calc', async () => {
     renderActive();
   });
 
+  // === HUD area (sticky сверху, всегда видна) ===
+  const hudArea = el('div', { class: 'calc-hud-area' });
+  hudArea.appendChild(el('div', { id: 'result' }));
+  view.appendChild(hudArea);
+  view.appendChild(el('div', { class: 'calc-hint' }, '↓ изменяй параметры — пересчёт мгновенный'));
   view.appendChild(form);
-  if (state.bc) form.dispatchEvent(new Event('submit'));
+
+  // Live-recalc: любое изменение в форме перезапускает submit (debounced).
+  let recalcTimer = null;
+  function scheduleRecalc() {
+    clearTimeout(recalcTimer);
+    recalcTimer = setTimeout(() => form.dispatchEvent(new Event('submit')), 120);
+  }
+  form.addEventListener('input', scheduleRecalc);
+  form.addEventListener('change', scheduleRecalc);
+
+  // первый прогон — всегда (а не только если state.bc заполнен)
+  form.dispatchEvent(new Event('submit'));
 });
 
 // ============== WEAPONS / CARTRIDGES ==============
