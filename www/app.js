@@ -1851,64 +1851,101 @@ route('/calc', async () => {
   const state = JSON.parse(localStorage.getItem('calc:last') || '{}');
 
   const form = el('form', { class: 'card' });
-  form.appendChild(el('h2', {}, 'Профили'));
-  form.appendChild(selectInput('weaponId', 'Оружие', state.weaponId,
+
+  // === Tabs row ===
+  const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
+  form.appendChild(ctrlTabs);
+
+  function makeSection(tabId) {
+    return el('div', { class: 'form-section', 'data-tab': tabId });
+  }
+
+  // === БЫСТРО — то что чаще меняется на стрельбище ===
+  const secQuick = makeSection('quick');
+  secQuick.appendChild(el('div', { class: 'row' },
+    numInput('v0', 'V₀, м/с', state.v0 ?? 830),
+    numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0)
+  ));
+  secQuick.appendChild(el('div', { class: 'row' },
+    numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
+      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
+    numInputWithSources('windAngle_deg', 'Угол ветра, °', state.windAngle_deg ?? 90,
+      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
+  ));
+  form.appendChild(secQuick);
+
+  // === ПУЛЯ ===
+  const secBullet = makeSection('bullet');
+  secBullet.appendChild(selectInput('weaponId', 'Оружие', state.weaponId,
     [{ value: '', label: '— вручную —' }, ...weapons.map(w => ({ value: w.id, label: w.name }))]));
-  form.appendChild(selectInput('cartridgeId', 'Патрон', state.cartridgeId,
+  secBullet.appendChild(selectInput('cartridgeId', 'Патрон', state.cartridgeId,
     [{ value: '', label: '— вручную —' }, ...cartridges.map(c => ({ value: c.id, label: c.name }))]));
-  form.appendChild(el('h2', {}, 'Параметры'));
-  form.appendChild(el('div', { class: 'row' },
+  secBullet.appendChild(el('div', { class: 'row' },
     numInput('bc', 'BC (lb/in²)', state.bc ?? 0.45),
     selectInput('dragModel', 'Модель', state.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])
   ));
-  form.appendChild(el('div', { class: 'row' },
-    numInput('v0', 'V₀ (м/с)', state.v0 ?? 830),
-    numInput('bulletMass_gr', 'Масса (гран)', state.bulletMass_gr ?? 175)
+  secBullet.appendChild(el('div', { class: 'row' },
+    numInput('bulletMass_gr', 'Масса, gr', state.bulletMass_gr ?? 175),
+    numInput('sightHeight_mm', 'Высота прицела, мм', state.sightHeight_mm ?? 50)
   ));
-  form.appendChild(el('div', { class: 'row' },
-    numInput('sightHeight_mm', 'Высота прицела (мм)', state.sightHeight_mm ?? 50),
-    numInput('zeroDistance', 'Пристрелка (м)', state.zeroDistance ?? 100)
-  ));
-  form.appendChild(el('h2', {}, 'Атмосфера'));
-  form.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' },
-    '🌐 = Open-Meteo по GPS · 📱 = датчик телефона · 📡 = Kestrel BT'));
-  form.appendChild(el('div', { class: 'row' },
+  secBullet.appendChild(numInput('zeroDistance', 'Пристрелка, м', state.zeroDistance ?? 100));
+  form.appendChild(secBullet);
+
+  // === АТМОСФЕРА ===
+  const secAtmo = makeSection('atmo');
+  secAtmo.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
+    '🌐 Open-Meteo · 📱 датчик · 📡 Kestrel'));
+  secAtmo.appendChild(el('div', { class: 'row' },
     numInputWithSources('tempC', 'Темп., °C', state.tempC ?? 15,
       [srcOpenMeteo('tempC', 1), srcKestrel('tempC', 1)]),
     numInputWithSources('pressureMbar', 'Давл., гПа', state.pressureMbar ?? 1013,
       [srcOpenMeteo('pressureMbar', 0), srcPhoneBaro(), srcKestrel('pressureMbar', 0)])
   ));
-  form.appendChild(el('div', { class: 'row' },
+  secAtmo.appendChild(el('div', { class: 'row' },
     numInputWithSources('humidity', 'Влажн., %', state.humidity ?? 50,
       [srcOpenMeteo('humidity', 0), srcKestrel('humidity', 0)]),
     numInput('shotAngle_deg', 'Угол места, °', state.shotAngle_deg ?? 0)
   ));
-  form.appendChild(el('div', { class: 'row' },
+  secAtmo.appendChild(el('div', { class: 'row' },
     numInput('cant_deg', 'Завал, °', state.cant_deg ?? 0),
-    numInput('ammoTempC', 'Темп. боеприпасов, °C', state.ammoTempC)
+    numInput('ammoTempC', 'Темп. боеприп., °C', state.ammoTempC)
   ));
-  form.appendChild(el('h2', {}, 'Ветер 1 (основной)'));
-  form.appendChild(el('div', { class: 'row' },
-    numInputWithSources('windSpeed', 'Скорость, м/с', state.windSpeed ?? 0,
-      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
-    numInputWithSources('windAngle_deg', 'Угол отн. ствола, °', state.windAngle_deg ?? 90,
-      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
+  secAtmo.appendChild(numInputWithSources('latitude_deg', 'Широта (Кориолис), °', state.latitude_deg ?? 55,
+    [srcGPSLat()]));
+  form.appendChild(secAtmo);
+
+  // === ПРОЧЕЕ ===
+  const secMisc = makeSection('misc');
+  secMisc.appendChild(el('div', { class: 'banner' }, 'Ветер 2 — для расчёта при порывах.'));
+  secMisc.appendChild(el('div', { class: 'row' },
+    numInput('windSpeed2', 'Ветер 2, м/с', state.windSpeed2 ?? 0),
+    numInput('windAngle_deg2', 'Угол ветра 2, °', state.windAngle_deg2 ?? 90)
   ));
-  form.appendChild(el('h2', { style: 'margin-top:14px' }, 'Ветер 2 (порывы / другой ракурс) — опц.'));
-  form.appendChild(el('div', { class: 'row' },
-    numInput('windSpeed2', 'Скорость 2, м/с', state.windSpeed2 ?? 0),
-    numInput('windAngle_deg2', 'Угол 2, °', state.windAngle_deg2 ?? 90)
-  ));
-  form.appendChild(el('h2', {}, 'Кориолис (опц.)'));
-  form.appendChild(el('div', { class: 'banner' },
-    'Для учёта эффекта Кориолиса заполни широту места выстрела и азимут к цели. Без них Кориолис нулевой.'));
-  form.appendChild(el('div', { class: 'row' },
-    numInputWithSources('latitude_deg', 'Широта, ° (+ север)', state.latitude_deg ?? 55,
-      [srcGPSLat()]),
-    numInput('azimuth_deg', 'Азимут к цели, °', state.azimuth_deg ?? 0)
-  ));
-  form.appendChild(el('h2', {}, 'Дистанции для таблицы'));
-  form.appendChild(textInput('distances', 'через запятую, м', state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
+  secMisc.appendChild(textInput('distances', 'Дистанции для таблицы (через запятую, м)',
+    state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
+  form.appendChild(secMisc);
+
+  // === Заполнение tab-bar ===
+  const tabs = [
+    { id: 'quick',  label: '⚡ Быстро' },
+    { id: 'bullet', label: '🔫 Пуля' },
+    { id: 'atmo',   label: '🌡 Атмо' },
+    { id: 'misc',   label: '⚙ Прочее' }
+  ];
+  let activeCtrlTab = state.activeCtrlTab || 'quick';
+  function showCtrlTab(id) {
+    activeCtrlTab = id;
+    state.activeCtrlTab = id;
+    form.querySelectorAll('.form-section').forEach(sec => {
+      sec.hidden = sec.dataset.tab !== id;
+    });
+    [...ctrlTabs.children].forEach(ch => ch.classList.toggle('active', ch.dataset.tab === id));
+  }
+  for (const t of tabs) {
+    ctrlTabs.appendChild(el('div', { class: 'chip', 'data-tab': t.id,
+      onclick: () => showCtrlTab(t.id) }, t.label));
+  }
+  showCtrlTab(activeCtrlTab);
 
   form.weaponId.addEventListener('change', () => {
     const w = weapons.find(x => x.id === form.weaponId.value);

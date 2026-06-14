@@ -126,15 +126,20 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 textarea { min-height: 90px; resize: vertical; }
-/* Числовые поля — центрированно, моноширинно, с буквенным трекингом */
-input[type="number"] {
+/* Все инпуты — текст по центру */
+input, select, textarea {
   text-align: center;
+  text-align-last: center;
+}
+input[type="number"] {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   letter-spacing: 1px;
 }
-/* Текст-плейсхолдер также центрируем для согласованности */
 input::placeholder { text-align: center; opacity: 0.5; }
+
+/* Лейблы по центру */
+label { text-align: center; }
 
 /* ===== buttons ===== */
 .btn {
@@ -269,15 +274,21 @@ input::placeholder { text-align: center; opacity: 0.5; }
 }
 .calc-hud-area .solution-card {
   margin-bottom: 0;
-  padding: 14px 12px;
+  padding: 10px 10px 12px;
 }
-.calc-hud-area .axis .val { font-size: 44px; }
-.calc-hud-area .axis .sub-val { font-size: 12px; }
-.calc-hud-area .range-stepper { margin-top: 8px; }
-.calc-hud-area .range-stepper button.step { width: 40px; height: 40px; font-size: 20px; }
-.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 90px; }
-.calc-ctrl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
-.calc-ctrl-tabs .chip { flex: 1; min-width: 0; text-align: center; }
+.calc-hud-area .axis .val { font-size: clamp(24px, 9vw, 38px); }
+.calc-hud-area .axis .sub-val { font-size: 11px; }
+.calc-hud-area .range-stepper { margin-top: 6px; }
+.calc-hud-area .range-stepper button.step { width: 38px; height: 38px; font-size: 20px; }
+.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 80px; }
+.calc-hud-area .dist-pick { font-size: 10px; }
+.calc-ctrl-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 10px 0 12px; }
+.calc-ctrl-tabs .chip {
+  flex: 1; min-width: 0; text-align: center; padding: 10px 6px;
+  font-size: 12px; letter-spacing: 0.5px;
+}
+.form-section[hidden] { display: none; }
+.form-section { padding: 4px 0; }
 .calc-hint {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
   text-transform: uppercase; text-align: center; margin: 4px 0 8px;
@@ -345,18 +356,27 @@ input::placeholder { text-align: center; opacity: 0.5; }
 .solution-card .main-values {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px;
 }
-.solution-card .axis { padding: 8px; }
+.solution-card .axis { padding: 4px; min-width: 0; }
 .solution-card .axis .lbl {
-  font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
   color: var(--muted); margin-bottom: 4px;
 }
 .solution-card .axis .val {
-  font-size: 56px; font-weight: 600; color: var(--accent);
+  font-size: clamp(26px, 10vw, 44px);
+  font-weight: 600; color: var(--accent);
   font-variant-numeric: tabular-nums; line-height: 1;
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 3px; white-space: nowrap;
 }
-.solution-card .axis .val .unit { font-size: 16px; color: var(--accent-2); margin-left: 4px; }
+.solution-card .axis .val .dir-arrow {
+  font-size: 0.7em; margin: 0; line-height: 1;
+}
+.solution-card .axis .val .unit {
+  font-size: 0.32em; color: var(--accent-2);
+  margin-left: 2px; letter-spacing: 1px;
+}
 .solution-card .axis .sub-val {
-  font-size: 14px; color: var(--muted); margin-top: 6px;
+  font-size: 11px; color: var(--muted); margin-top: 4px;
   font-variant-numeric: tabular-nums;
 }
 .solution-card .dist-chips {
