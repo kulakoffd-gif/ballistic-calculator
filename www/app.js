@@ -3854,21 +3854,100 @@ route('/settings', async () => {
       toast('Сброшено'); refreshYD();
     }}, 'Отвязать'));
 
-    // — инструкция —
-    ydCard.appendChild(el('details', { style: 'margin-top:10px' },
-      el('summary', { style: 'cursor:pointer;color:var(--accent);font-size:13px' }, '📖 Как один раз настроить (≈2 минуты)'),
-      el('div', { style: 'font-size:12px;color:var(--muted);line-height:1.6;padding:8px 0' },
-        h(`<ol style="margin:0;padding-left:18px;">
-          <li>Открой в браузере <b>oauth.yandex.ru/client/new</b></li>
-          <li>Название — «BalisticNote backup», платформа — «Веб-сервисы»</li>
-          <li>Redirect URI: <code>https://oauth.yandex.ru/verification_code</code></li>
-          <li>Доступ: «Яндекс.Диск REST API» → отметь <code>cloud_api:disk.write</code>, <code>cloud_api:disk.read</code>, <code>cloud_api:disk.info</code></li>
-          <li>Создай приложение → скопируй <b>Client ID</b> в поле выше</li>
-          <li>Тапни «🔑 Получить токен», разреши доступ — после редиректа URL будет содержать <code>access_token=y0_...</code></li>
-          <li>Скопируй значение токена и вставь в поле «Access Token» → «✅ Проверить»</li>
-          <li>Готово — каждое изменение БД будет уходить на Я.Диск автоматически</li>
-        </ol>`))
+    // — встроенная памятка (всегда видна) —
+    ydCard.appendChild(el('div', { class: 'help-card' },
+      el('div', { class: 'help-title' }, '📖 Памятка по настройке (≈2 минуты, один раз)'),
+      h(`<ol class="help-steps">
+        <li><b>Создай OAuth-приложение.</b> На любом устройстве открой
+            <code>oauth.yandex.ru/client/new</code> (Яндекс ID, кнопка «Зарегистрировать новое приложение»).</li>
+        <li><b>Заполни форму.</b>
+          <ul>
+            <li>Название: <i>BalisticNote backup</i> (любое)</li>
+            <li>Платформа: <b>Веб-сервисы</b></li>
+            <li>Redirect URI: <code>https://oauth.yandex.ru/verification_code</code></li>
+            <li>Доступ → блок «Яндекс.Диск REST API» → отметь <b>3 галочки</b>:
+              <code>cloud_api:disk.write</code>, <code>cloud_api:disk.read</code>, <code>cloud_api:disk.info</code></li>
+          </ul>
+        </li>
+        <li><b>Скопируй Client ID.</b> Появится 32-символьная строка в карточке приложения → вставь её в поле <b>Client ID</b> выше и тапни вне поля (значение сохранится).</li>
+        <li><b>Тапни «🔑 Получить токен».</b> Откроется страница Яндекс ID — войди в свой аккаунт, разреши приложению доступ к Диску.</li>
+        <li><b>Найди токен в URL.</b> После «Разрешить» Яндекс редиректит на страницу с длинным URL вида:
+          <div class="code-block">https://oauth.yandex.ru/verification_code#<b>access_token=y0_AgAAAA...очень_длинная_строка</b>&token_type=bearer&expires_in=...</div>
+          Скопируй значение между <code>access_token=</code> и первым <code>&</code> (это и есть токен, начинается на <code>y0_</code>).
+          <br><i>На некоторых браузерах Яндекс показывает токен сразу в виде кода подтверждения на странице — копируй его.</i></li>
+        <li><b>Вставь токен.</b> В поле «Access Token» выше → тапни «✅ Проверить токен» — появится тост с твоим логином и занятым местом на Диске.</li>
+        <li><b>Готово.</b> С этого момента каждое изменение базы (debounced ~2 сек) уходит в <code>Disk:/BalisticNote/backup.json</code>. После переустановки приложение само спросит «Найден бэкап в Я.Диске, восстановить?».</li>
+      </ol>
+      <div class="help-tip">
+        <b>Зачем это надо.</b> Локальный бэкап в <code>/Documents/</code> на телефоне отлично работает, но если ты сменишь телефон или потеряешь его — данные не вернуть.
+        Яндекс.Диск держит копию в облаке и доступен с любого устройства.
+        <b>Токен живёт 1 год</b>; за неделю до истечения Я.Диск пришлёт уведомление — обновишь через ту же процедуру.
+      </div>
+      <div class="help-tip">
+        <b>Безопасность.</b> Токен хранится только локально (в браузерном <code>localStorage</code>) и в экспорте JSON не сохраняется. Если потерял телефон — отзови токен на <code>id.yandex.ru/security/oauth</code>.
+      </div>`)
     ));
+
+    // — отдельная кнопка для полноэкранной памятки —
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openSheet((sheet, close) => {
+      sheet.appendChild(el('h3', {}, 'Подробная инструкция'));
+      sheet.appendChild(el('div', { class: 'sub' }, 'Подключение Яндекс.Диска к BalisticNote'));
+      const body = el('div', { style: 'max-height:65vh;overflow-y:auto;padding-right:6px;line-height:1.55;font-size:14px' });
+      body.innerHTML = `
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Шаг 1 — Регистрация OAuth-приложения</h4>
+        <p>В браузере открой <a href="https://oauth.yandex.ru/client/new" target="_blank" style="color:var(--accent)">oauth.yandex.ru/client/new</a>. Авторизуйся через свой Яндекс ID.</p>
+        <p>В форме создания приложения:</p>
+        <ul>
+          <li><b>Название</b>: «BalisticNote backup» (или любое)</li>
+          <li><b>Иконка</b>: можно пропустить</li>
+          <li><b>Платформа</b>: выбери <b>Веб-сервисы</b></li>
+          <li><b>Redirect URI</b>: <code>https://oauth.yandex.ru/verification_code</code> (скопируй и вставь точно так)</li>
+        </ul>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Шаг 2 — Права доступа</h4>
+        <p>В разделе «Доступ» найди блок <b>«Яндекс.Диск REST API»</b> и отметь три галочки:</p>
+        <ul>
+          <li><code>cloud_api:disk.write</code> — запись файлов</li>
+          <li><code>cloud_api:disk.read</code> — чтение файлов</li>
+          <li><code>cloud_api:disk.info</code> — информация о диске (нужно для «Проверить токен»)</li>
+        </ul>
+        <p>Другие галочки не нужны. Тапни «Создать приложение».</p>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Шаг 3 — Client ID</h4>
+        <p>В карточке только что созданного приложения скопируй <b>ClientID</b> (32 символа). Вернись в приложение и вставь его в поле «Client ID». Тапни вне поля чтобы значение сохранилось.</p>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Шаг 4 — Получение токена</h4>
+        <p>В приложении тапни «🔑 Получить токен». Откроется страница Яндекс ID. Авторизуйся (если ещё не вошёл), нажми «Разрешить».</p>
+        <p>Яндекс редиректит на длинный URL вида:</p>
+        <pre style="background:#000;padding:8px;border-radius:6px;font-size:11px;overflow-x:auto">
+https://oauth.yandex.ru/verification_code#access_token=y0_AgAAAAB...&token_type=bearer&expires_in=31536000</pre>
+        <p>Скопируй значение токена — то, что идёт <b>после</b> <code>access_token=</code> и <b>до</b> первого <code>&</code>. Он начинается на <code>y0_</code> и довольно длинный (~90 символов).</p>
+        <p><i>Альтернатива:</i> на некоторых телефонах Яндекс показывает «код подтверждения» прямо на странице — это и есть токен, его и копируй.</p>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Шаг 5 — Применение</h4>
+        <p>Вставь токен в поле «Access Token», тапни «✅ Проверить токен». Должен появиться тост с твоим логином Яндекса и занятым/общим местом на Диске.</p>
+        <p>Тапни «↑ Залить на Я.Диск сейчас» — создастся файл <code>/BalisticNote/backup.json</code>.</p>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Что дальше</h4>
+        <ul>
+          <li>Каждое изменение базы (новый патрон, выстрел, заметка) автоматически отправляется на Я.Диск через ~2 секунды</li>
+          <li>На новом телефоне после установки → при первом запуске спросит «Найден бэкап на Я.Диске, восстановить?» (если токен задан)</li>
+          <li>Если хочешь принудительно подтянуть свежее с Диска — «↓ Скачать и применить с Я.Диска»</li>
+        </ul>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Срок жизни токена</h4>
+        <p>По умолчанию <b>1 год</b>. За 7 дней до истечения Яндекс пришлёт уведомление. Чтобы продлить — просто повтори Шаг 4.</p>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Безопасность и отзыв доступа</h4>
+        <ul>
+          <li>Токен хранится только в <code>localStorage</code> WebView — НЕ попадает в экспорт JSON</li>
+          <li>Если потерял телефон — отзови токен через <a href="https://id.yandex.ru/security/oauth" target="_blank" style="color:var(--accent)">id.yandex.ru/security/oauth</a> → «Выйти из всех сессий приложения»</li>
+          <li>Приложение видит ТОЛЬКО твой Диск — других данных аккаунта не получает</li>
+        </ul>
+        <h4 style="color:var(--accent);margin:14px 0 6px;letter-spacing:1px">Решение проблем</h4>
+        <ul>
+          <li><b>«401» или «invalid token»</b> — токен просрочен или отозван, повтори Шаг 4</li>
+          <li><b>«403 Forbidden»</b> — забыл отметить нужные права в Шаге 2 — пересоздай приложение</li>
+          <li><b>«Сначала укажи Client ID»</b> — поле Client ID пустое, заполни и тапни вне поля</li>
+          <li><b>Тост «Подключён» приходит, но «Залить» падает</b> — проверь, что не закончилось место на Диске</li>
+        </ul>
+      `;
+      sheet.appendChild(body);
+      sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close }, 'Понятно, закрыть'));
+    })}, '📖 Полная памятка (sheet)'));
 
     async function refreshYD() {
       try {
