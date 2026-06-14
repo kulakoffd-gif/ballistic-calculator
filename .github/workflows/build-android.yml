@@ -45,6 +45,34 @@ jobs:
             npx cap add android
           fi
 
+      - name: Force debug signing with repo keystore
+        run: |
+          # Копируем keystore в проект, чтобы Gradle точно его нашёл.
+          cp debug.keystore android/app/debug.keystore
+          # Аппендим explicit signingConfig в build.gradle — он переопределит дефолт AGP.
+          cat >> android/app/build.gradle <<'EOF'
+
+          android {
+              signingConfigs {
+                  debug {
+                      storeFile file('debug.keystore')
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
+              buildTypes {
+                  debug {
+                      signingConfig signingConfigs.debug
+                  }
+              }
+          }
+          EOF
+          echo "=== SHA keystore-а в repo ==="
+          shasum -a 256 debug.keystore
+          echo "=== build.gradle hvost ==="
+          tail -20 android/app/build.gradle
+
       - name: Generate Android icons from assets/icon.png
         run: npx capacitor-assets generate --android --iconBackgroundColor '#0a0e14' --iconBackgroundColorDark '#0a0e14' || echo "asset generation failed, продолжаем"
 
@@ -56,6 +84,13 @@ jobs:
           cd android
           chmod +x ./gradlew
           ./gradlew assembleDebug
+
+      - name: Verify APK signature fingerprint
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          BUILD_TOOLS=$(ls -d $ANDROID_SDK_ROOT/build-tools/* | sort | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -E "SHA-256|Subject" || true
+          echo "Подпись APK выше. Если она одинаковая между сборками — установится поверх без конфликта."
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
