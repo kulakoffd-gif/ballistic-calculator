@@ -69,11 +69,20 @@ main { padding: 8px 14px 100px; max-width: 760px; margin: 0 auto; }
   position: fixed; top: 0; right: 0; bottom: 0;
   width: 78%; max-width: 320px;
   background: var(--panel); border-left: 1px solid var(--border);
-  padding: calc(env(safe-area-inset-top) + 56px) 12px 12px;
+  padding: calc(env(safe-area-inset-top) + 56px) 12px calc(env(safe-area-inset-bottom) + 16px);
   display: flex; flex-direction: column; gap: 4px; z-index: 20;
   transition: transform .2s; box-shadow: var(--shadow);
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; touch-action: pan-y;
 }
-.drawer[hidden] { display: flex; transform: translateX(100%); }
+.drawer[hidden] { display: flex; transform: translateX(100%); pointer-events: none; }
+.drawer a, .drawer button.nav { flex-shrink: 0; }
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 19;
+  background: rgba(0,0,0,0.45);
+  touch-action: none;
+}
+body.drawer-open { overflow: hidden; height: 100dvh; }
 .drawer a, .drawer button.nav {
   color: var(--text); text-decoration: none; padding: 14px;
   border-radius: 10px; font-size: 16px;

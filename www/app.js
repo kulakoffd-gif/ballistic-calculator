@@ -59,11 +59,28 @@ function route(pat, fn) {
   const keys = (pat.match(/:[^/]+/g) || []).map(s => s.slice(1));
   routes.push({ re, keys, fn, pat });
 }
+// — backdrop для drawer'а: блокирует тачи на странице и закрывает по тапу —
+let drawerBackdrop = null;
+function setDrawer(open) {
+  drawer.hidden = !open;
+  document.body.classList.toggle('drawer-open', open);
+  if (open) {
+    if (!drawerBackdrop) {
+      drawerBackdrop = el('div', { class: 'drawer-backdrop',
+        onclick: () => setDrawer(false) });
+      document.body.appendChild(drawerBackdrop);
+    }
+  } else if (drawerBackdrop) {
+    drawerBackdrop.remove();
+    drawerBackdrop = null;
+  }
+}
+
 async function navigate() {
   let hash = location.hash.replace(/^#/, '') || '/';
   const [path, qs] = hash.split('?');
   const query = Object.fromEntries(new URLSearchParams(qs || ''));
-  drawer.hidden = true;
+  setDrawer(false);
   for (const r of routes) {
     const m = path.match(r.re);
     if (m) {
@@ -79,8 +96,8 @@ async function navigate() {
 }
 window.addEventListener('hashchange', navigate);
 btnBack.addEventListener('click', () => history.back());
-$('#btnMenu').addEventListener('click', () => { drawer.hidden = !drawer.hidden; });
-drawer.addEventListener('click', e => { if (e.target.tagName === 'A') drawer.hidden = true; });
+$('#btnMenu').addEventListener('click', () => setDrawer(drawer.hidden));
+drawer.addEventListener('click', e => { if (e.target.tagName === 'A') setDrawer(false); });
 
 // ============== wind / clock ==============
 function windToClock(windToDirDeg, shotAzimuthDeg) {
