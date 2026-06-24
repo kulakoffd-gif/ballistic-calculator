@@ -2095,7 +2095,8 @@ route('/calc', async () => {
     const res = Ballistics.solve(input);
     const out = $('#result');
     out.innerHTML = '';
-    out.appendChild(el('hr'));
+    const outX = $('#calc-extra');
+    if (outX) outX.innerHTML = '';
     // применяем сдвиг ко всем строкам
     for (const row of res.rows) if (c) applyCartridgeOffset(row, c, rezeroed);
 
@@ -2270,7 +2271,6 @@ route('/calc', async () => {
     const E_fl = massGr ? Ballistics.kineticEnergyFtLb(massGr, rowAt.vel_mps) : null;
     const TKO  = (massGr && calIn) ? Ballistics.taylorKO(massGr, rowAt.vel_mps, calIn) : null;
     const paramCard = el('div', { class: 'card' });
-    paramCard.appendChild(el('h2', {}, 'Атмосфера и баллистика'));
     const kvParams = el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'V на цели'),
       el('div', { class: 'v' }, fmt(rowAt.vel_mps, 0) + ' м/с'),
@@ -2290,44 +2290,37 @@ route('/calc', async () => {
       kvParams.appendChild(el('div', { class: 'v' }, fmt(TKO, 1)));
     }
     paramCard.appendChild(kvParams);
-    out.appendChild(paramCard);
 
-    // — табы «Поправки | Прицел» —
+    // Сохраняем полное решение для отдельного экрана «Все дистанции».
+    window.__calcLast = {
+      rows: res.rows,
+      profile: [w?.name, c?.name].filter(Boolean).join(' · '),
+    };
+
     const reticle = w?.reticleId ? await Store.get('reticles', w.reticleId) : null;
-    const tabsRow = el('div', { class: 'chips', style: 'margin:10px 0' });
-    const tabBody = el('div');
-    let activeTab = 'table';
-    function renderActive() {
-      tabBody.innerHTML = '';
-      [...tabsRow.children].forEach(ch => ch.classList.toggle('active', ch.dataset.tab === activeTab));
-      if (activeTab === 'table') {
-        const t = el('table', { class: 'table' });
-        t.appendChild(h(`<thead><tr><th>Дист.</th><th>Верт. mil</th><th>MOA</th><th>Гор. mil</th><th>V, м/с</th><th>t, с</th></tr></thead>`));
-        const tb = el('tbody');
-        for (const row of res.rows) {
-          tb.appendChild(h(`<tr>
-            <td>${row.range}</td>
-            <td class="accent">${fmt(row.drop_mil,2)}</td>
-            <td>${fmt(row.drop_moa,1)}</td>
-            <td class="accent">${fmt(row.drift_mil,2)}</td>
-            <td>${fmt(row.vel_mps,0)}</td>
-            <td>${fmt(row.tof_s,2)}</td>
-          </tr>`));
-        }
-        t.appendChild(tb);
-        tabBody.appendChild(el('div', { style: 'overflow-x:auto' }, t));
-      } else {
-        tabBody.appendChild(renderReticleViewer(reticle, res.rows));
+
+    // — НИЖНИЙ блок (под контроллерами): кнопки + детали, без таблицы на главном —
+    if (outX) {
+      outX.appendChild(el('button', { type: 'button', class: 'btn', style: 'margin:10px 0 0',
+        onclick: () => { location.hash = '#/calc-table'; } }, '📋 Все дистанции (таблица)'));
+
+      if (reticle) {
+        const det = el('details', { class: 'calc-reticle' });
+        det.appendChild(el('summary', {}, '🔭 Прицел — сетка с точкой решения'));
+        det.addEventListener('toggle', () => {
+          if (det.open && !det.dataset.rendered) {
+            det.appendChild(renderReticleViewer(reticle, res.rows));
+            det.dataset.rendered = '1';
+          }
+        });
+        outX.appendChild(det);
       }
+
+      const paramDet = el('details', { class: 'calc-reticle' });
+      paramDet.appendChild(el('summary', {}, '🌡 Атмосфера и баллистика'));
+      paramDet.appendChild(paramCard);
+      outX.appendChild(paramDet);
     }
-    const tabT = el('div', { class: 'chip active', 'data-tab': 'table',
-      onclick: () => { activeTab = 'table'; renderActive(); }}, 'Все дистанции');
-    const tabR = el('div', { class: 'chip', 'data-tab': 'reticle',
-      onclick: () => { activeTab = 'reticle'; renderActive(); }}, 'Прицел');
-    tabsRow.appendChild(tabT); tabsRow.appendChild(tabR);
-    out.appendChild(tabsRow);
-    out.appendChild(tabBody);
-    renderActive();
   });
 
   // === HUD area (sticky сверху, всегда видна) ===
@@ -2336,8 +2329,9 @@ route('/calc', async () => {
   hudArea.appendChild(incBanner);
   hudArea.appendChild(el('div', { id: 'result' }));
   view.appendChild(hudArea);
-  view.appendChild(el('div', { class: 'calc-hint' }, '↓ изменяй параметры — пересчёт мгновенный'));
+  view.appendChild(el('div', { class: 'calc-hint' }, '↓ ветер · скорость · атмосфера — меняй, пересчёт мгновенный'));
   view.appendChild(form);
+  view.appendChild(el('div', { id: 'calc-extra' }));
 
   // === Inclination live-warning ===
   // Подписка на Compass. Если |measured| > 3° или |measured - input| > 1° — баннер.
@@ -2389,6 +2383,35 @@ route('/calc', async () => {
 
   // первый прогон — всегда (а не только если state.bc заполнен)
   form.dispatchEvent(new Event('submit'));
+});
+
+// Отдельный экран: таблица решений на все дистанции (вызывается кнопкой из /calc).
+route('/calc-table', async () => {
+  setHeader({ title: 'Все дистанции' });
+  const last = window.__calcLast;
+  if (!last || !last.rows || !last.rows.length) {
+    view.appendChild(el('div', { class: 'card' },
+      el('div', { class: 'muted center' }, 'Сначала открой Калькулятор и сделай расчёт — таблица появится здесь.'),
+      el('button', { type: 'button', class: 'btn', style: 'margin-top:10px',
+        onclick: () => { location.hash = '#/calc'; } }, '→ В калькулятор')));
+    return;
+  }
+  if (last.profile) view.appendChild(el('div', { class: 'muted center', style: 'margin-bottom:8px' }, last.profile));
+  const t = el('table', { class: 'table' });
+  t.appendChild(h(`<thead><tr><th>Дист.</th><th>Верт. mil</th><th>MOA</th><th>Гор. mil</th><th>V, м/с</th><th>t, с</th></tr></thead>`));
+  const tb = el('tbody');
+  for (const row of last.rows) {
+    tb.appendChild(h(`<tr>
+      <td>${row.range}</td>
+      <td class="accent">${fmt(row.drop_mil,2)}</td>
+      <td>${fmt(row.drop_moa,1)}</td>
+      <td class="accent">${fmt(row.drift_mil,2)}</td>
+      <td>${fmt(row.vel_mps,0)}</td>
+      <td>${fmt(row.tof_s,2)}</td>
+    </tr>`));
+  }
+  t.appendChild(tb);
+  view.appendChild(el('div', { class: 'card', style: 'overflow-x:auto' }, t));
 });
 
 // ============== WEAPONS / CARTRIDGES ==============

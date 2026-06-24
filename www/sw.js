@@ -1,7 +1,7 @@
 // Service worker — офлайн-кэш оболочки приложения (только web/PWA-режим).
 // В нативном Capacitor не регистрируется (см. index.html).
 // При изменении файлов поднимай CACHE-версию, чтобы клиенты получили свежак.
-const CACHE = 'balisticnote-v1';
+const CACHE = 'balisticnote-v2';
 const SHELL = [
   './',
   './index.html',
@@ -36,25 +36,17 @@ self.addEventListener('fetch', (e) => {
   // Не трогаем внешние API (Я.Диск, Open-Meteo) и кросс-домен — всегда из сети.
   if (url.origin !== self.location.origin) return;
 
-  // Навигация → сначала сеть (свежий index), при офлайне — кэш.
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-
-  // Остальное (статика) → cache-first, фоновое обновление.
+  // NETWORK-FIRST для всего своего домена: всегда берём свежую версию из сети,
+  // кэш — только запасной вариант при офлайне. Так обновления видны сразу.
   e.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req).then((resp) => {
-        if (resp && resp.ok) {
-          const copy = resp.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return resp;
-      }).catch(() => cached);
-      return cached || network;
-    })
+    fetch(req).then((resp) => {
+      if (resp && resp.ok) {
+        const copy = resp.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy));
+      }
+      return resp;
+    }).catch(() =>
+      caches.match(req).then((cached) => cached || (req.mode === 'navigate' ? caches.match('./index.html') : undefined))
+    )
   );
 });
