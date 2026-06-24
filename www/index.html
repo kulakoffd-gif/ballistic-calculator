@@ -60,7 +60,21 @@
 <script>
 // SW нужен только в web-режиме (PWA-фоллбэк). В нативном Capacitor — пропускаем.
 if (!window.Capacitor?.isNativePlatform?.() && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+  // Авто-обновление: если уже есть активный SW и приходит новая версия —
+  // перезагружаем страницу один раз, чтобы пользователь сразу получил свежак.
+  if (navigator.serviceWorker.controller) {
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return; refreshing = true; location.reload();
+    });
+  }
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      reg.update && reg.update();
+      // периодически проверять обновления (раз в минуту)
+      setInterval(() => { reg.update && reg.update(); }, 60000);
+    }).catch(() => {});
+  });
 }
 </script>
 </body>
