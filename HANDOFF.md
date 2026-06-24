@@ -12,7 +12,8 @@
 |---|---|
 | Активный проект | `/Users/User1/Library/Mobile Documents/com~apple~CloudDocs/Ballistic Calculator/` |
 | Старая PWA-версия (заморожена) | `/Users/User1/Library/Mobile Documents/com~apple~CloudDocs/Приложение для стрельбы/` |
-| GitHub-репо | `kulakoffd-gif/ballistic-calculator` (private, main branch) |
+| GitHub-репо | `kulakoffd-gif/ballistic-calculator` (**public**, main branch) |
+| **Веб-версия (PWA)** | **https://kulakoffd-gif.github.io/ballistic-calculator/** — авто-деплой `www/` через GitHub Pages |
 | APK на Mac | `~/Downloads/BalisticNote-Pro-debug.apk` |
 | AB Quantum manual (для UI-паттернов) | `~/Library/CloudStorage/GoogleDrive-kulakoff.d@gmail.com/Мой диск/Снайпинг/Книги/Manuals/AB Quantum User Manual.pdf` (620 стр.) |
 | Референс-видео Skyrange (UI-паттерны wizard'а) | `Приложение для стрельбы/IMG_3990.MP4` (можно удалить если не нужно) |
@@ -44,7 +45,8 @@ Ballistic Calculator/
 ├── assets/
 │   ├── icon.png (1024×1024)       ← source для @capacitor/assets
 │   └── icon-foreground.png
-├── .github/workflows/build-android.yml   ← GitHub Actions CI
+├── .github/workflows/build-android.yml   ← GitHub Actions CI (APK)
+├── .github/workflows/deploy-pages.yml     ← деплой www/ на GitHub Pages (веб-версия)
 ├── SETUP.md                       ← инструкция сборки (можно использовать как есть)
 ├── HANDOFF.md                     ← этот файл
 └── www/
@@ -55,6 +57,9 @@ Ballistic Calculator/
     ├── storage.js                 ← IndexedDB-обёртка
     ├── devices.js                 ← Compass + Bluetooth dual-mode + Open-Meteo
     ├── manifest.webmanifest       ← PWA-манифест (используется и для веб-фоллбэка)
+    ├── sw.js                      ← service worker (офлайн-кэш, только web/PWA)
+    ├── backup.js                  ← авто-бэкап + двусторонняя синхронизация
+    ├── yadisk.js                  ← Yandex.Disk REST API
     └── icon.svg                   ← веб-иконка
 ```
 
@@ -62,7 +67,13 @@ Ballistic Calculator/
 
 ## 4. GitHub Actions / CI
 
-Каждый `git push` в `main` → собирается APK на Ubuntu runner за ~5-8 мин:
+**Два workflow** на каждый `git push` в `main`:
+- `build-android.yml` → собирает APK (см. ниже)
+- `deploy-pages.yml` → публикует `www/` на GitHub Pages (триггер по `www/**`). Репо **публичный** (бесплатный Pages работает только на public). Source в Settings → Pages = **GitHub Actions**. Адрес: https://kulakoffd-gif.github.io/ballistic-calculator/. Ручной перезапуск — `workflow_dispatch` или через API `POST /actions/workflows/deploy-pages.yml/dispatches {"ref":"main"}`.
+
+### APK-сборка (`build-android.yml`)
+
+Собирается на Ubuntu runner за ~5-8 мин:
 
 1. Setup JDK 21, Node 22, Android SDK 35
 2. Копирует `debug.keystore` → `~/.android/debug.keystore`
@@ -144,7 +155,7 @@ Ballistic Calculator/
 
 ## 7. Хранилище (IndexedDB)
 
-DB: `skyrange`, version 3. Stores:
+DB: `skyrange`, **version 5**. Stores:
 - `ranges` — полигоны
 - `positions` — огневые позиции, привязаны к полигону
 - `targets` — цели (дист., азимут, имя)
@@ -157,6 +168,8 @@ DB: `skyrange`, version 3. Stores:
 - `bullets` — библиотека пуль (заглушка для Wave 2)
 - `casePreps` — подготовка гильз (заглушка для Wave 2)
 - `notes` — заметки прикреплённые к сущностям (заглушка для Wave 2)
+- `stages` — PRS-стейджи (Wave 4)
+- `_tombstones` — служебный стор «надгробий» удалённых записей `{id:`${store}::${recId}`, store, recId, deletedAt}`. Нужен для корректного распространения удалений при merge-синхронизации (см. §10).
 
 ---
 
@@ -217,8 +230,16 @@ DB: `skyrange`, version 3. Stores:
 
 **Защита от потери данных** (`www/backup.js` + `www/yadisk.js`):
 - Каждое изменение в IndexedDB через `Store.put`/`del`/`importAll` (debounced 2 сек) дублируется в `/storage/emulated/0/Documents/BalisticNote/backup.json` через Capacitor Filesystem с `Directory.Documents`. Documents-папка переживает удаление приложения.
-- Параллельно — best-effort upload на **Яндекс.Диск** в `/BalisticNote/backup.json` через REST API (`cloud-api.yandex.net`, OAuth-токен). Настройки в `/settings` → карточка «Яндекс.Диск».
-- На старте приложения: если IndexedDB пустая → проверяет Я.Диск (приоритет), потом локальный `/Documents` → confirm «Восстановить из X (N записей)?».
+- Параллельно — **двусторонняя синхронизация** с **Яндекс.Диском** (`/BalisticNote/backup.json`, REST API `cloud-api.yandex.net`, OAuth-токен). Настройки в `/settings` → карточка «Яндекс.Диск».
+- На старте приложения: если Я.Диск настроен → **фоновая синхронизация** (`Backup.syncNow()`), не блокирует первый рендер; при изменениях — тост и `navigate()`. Если облако не настроено и база пустая → проверяет локальный `/Documents` → confirm «Восстановить из X».
+
+**Модель синхронизации (важно — изменено)**. Раньше был «кто последний залил, тот затёр всю базу». Теперь — **по-записная склейка без потерь**:
+- `Store.mergeAll(payload)` (в `storage.js`): для каждой записи побеждает та, у которой `updatedAt` новее (last-write-wins на уровне записи, а не всей базы). Новые записи добавляются.
+- Удаления распространяются через `_tombstones`: запись удаляется при merge, только если её `updatedAt` **не новее** `deletedAt` надгробия (правка после удаления → запись воскресает). `Store.del()` пишет надгробие; `Store.delRaw()` — нет.
+- `Store.putRaw()` — запись без перетирания `updatedAt` (нужно внутри merge, чтобы не сбить LWW). Обычный `Store.put()` ставит `updatedAt = now`.
+- `Backup.syncNow()` (в `backup.js`): скачать облако → `mergeAll` в локальную → залить объединённый результат обратно. Флаг `syncing` защищает от повторного входа. Merge использует `putRaw`/`delRaw` (необёрнутые) — поэтому не запускает повторный `scheduleSave` (нет бесконечного цикла).
+- Кнопка «🔄 Синхронизировать» в `/settings` → Я.Диск вызывает `syncNow`. Старая «↑ Залить (перезапись)» и «↓ Скачать и применить» оставлены как принудительные one-way операции.
+- Проверено `fake-indexeddb`-тестом: LWW, добавление, удаление держится, воскрешение после правки — все ок.
 - В `/settings` две карточки:
   - «Авто-бэкап в /Documents» — кнопки «💾 Сохранить сейчас» и «⤵ Восстановить»
   - «Яндекс.Диск» — Client ID + Access Token, кнопки «Проверить», «↑ Залить сейчас», «↓ Скачать и применить», «Отвязать», + раскрывающаяся инструкция по получению OAuth-токена (oauth.yandex.ru/client/new → права cloud_api:disk.write/read/info → implicit grant)
