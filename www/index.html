@@ -58,23 +58,17 @@
 <script src="backup.js"></script>
 <script src="app.js"></script>
 <script>
-// SW нужен только в web-режиме (PWA-фоллбэк). В нативном Capacitor — пропускаем.
-if (!window.Capacitor?.isNativePlatform?.() && 'serviceWorker' in navigator) {
-  // Авто-обновление: если уже есть активный SW и приходит новая версия —
-  // перезагружаем страницу один раз, чтобы пользователь сразу получил свежак.
-  if (navigator.serviceWorker.controller) {
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return; refreshing = true; location.reload();
-    });
-  }
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      reg.update && reg.update();
-      // периодически проверять обновления (раз в минуту)
-      setInterval(() => { reg.update && reg.update(); }, 60000);
-    }).catch(() => {});
-  });
+// Сносим старый service worker, который мешал обновлениям и кэшировал старьё.
+// ВАЖНО: чистим ТОЛЬКО кэш оболочки (Cache Storage). База (IndexedDB) и
+// настройки (localStorage) НЕ трогаются — данные полигонов/пуль/патронов целы.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    const had = regs.length > 0;
+    return Promise.all(regs.map(r => r.unregister()))
+      .then(() => (window.caches ? caches.keys() : []))
+      .then(keys => Promise.all((keys || []).map(k => caches.delete(k))))
+      .then(() => { if (had) location.reload(); }); // один раз перезагрузимся на свежак
+  }).catch(() => {});
 }
 </script>
 </body>
