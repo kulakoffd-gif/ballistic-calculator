@@ -2148,7 +2148,7 @@ route('/calc', async () => {
   // === Заполнение tab-bar ===
   const tabs = [
     { id: 'bullet', label: '🎯 Профиль' },
-    { id: 'atmo',   label: '🌡 Атмо' },
+    { id: 'atmo',   label: '🌡 Meteo' },
     { id: 'misc',   label: '⚙ Прочее' }
   ];
   let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'bullet';
@@ -4443,7 +4443,7 @@ function loadAtmoPresets() {
 }
 function saveAtmoPresets(arr) { localStorage.setItem('atmoPresets', JSON.stringify(arr)); }
 route('/atmo-presets', async () => {
-  setHeader({ title: 'Атмо-пресеты' });
+  setHeader({ title: 'Meteo-пресеты' });
   const presets = loadAtmoPresets();
   view.appendChild(el('div', { class: 'banner' },
     'Сохрани атмо-снепшот «утро на МФОЦ» или «зимой в Подмосковье» — применяй одной кнопкой в Калькуляторе.'));
