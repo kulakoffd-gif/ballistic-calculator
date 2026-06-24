@@ -2686,6 +2686,11 @@ route('/cartridge/:id', async ({ id }) => {
     numInput('bulletLength_in', 'Длина пули, in', c.bulletLength_in),
     numInput('caliber_in', 'Калибр, in', c.caliber_in)
   ));
+  // релоадинг: марка пороха + навеска (в гранах)
+  f.appendChild(el('div', { class: 'row' },
+    textInput('powder', 'Порох (марка)', c.powder),
+    numInput('powderCharge_gr', 'Навеска пороха, gr', c.powderCharge_gr, { step: '0.1' })
+  ));
 
   // — Базовый патрон и сдвиг —
   f.appendChild(el('hr'));
