@@ -387,6 +387,32 @@ function savePrefs(p) { localStorage.setItem('prefs', JSON.stringify(p)); }
 function pressureFromAltitude(altitude_m, sealevelMbar = 1013.25) {
   return sealevelMbar * Math.pow(1 - 0.0000225577 * altitude_m, 5.2559);
 }
+// — Надёжное получение геопозиции с понятными ошибками и авто-фоллбэком —
+function geoErrMsg(e) {
+  if (!e) return 'неизвестная ошибка';
+  switch (e.code) {
+    case 1: return 'доступ к геолокации запрещён. Разреши его для сайта (значок 🔒/ⓘ в адресной строке → «Местоположение»)';
+    case 2: return 'местоположение недоступно — включи геолокацию (службы геопозиции) на устройстве';
+    case 3: return 'GPS не успел определить позицию — попробуй на открытом месте';
+    default: return e.message || 'ошибка GPS';
+  }
+}
+function getGeo({ highAccuracy = true, timeout = 12000 } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('геолокация не поддерживается этим браузером')); return; }
+    navigator.geolocation.getCurrentPosition(resolve, (e) => {
+      // таймаут/недоступность при highAccuracy → повтор без него, с большим таймаутом
+      if ((e.code === 3 || e.code === 2) && highAccuracy) {
+        navigator.geolocation.getCurrentPosition(resolve,
+          (e2) => reject(new Error(geoErrMsg(e2))),
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 });
+      } else {
+        reject(new Error(geoErrMsg(e)));
+      }
+    }, { enableHighAccuracy: highAccuracy, timeout, maximumAge: 0 });
+  });
+}
+
 // читаем барометр телефона если доступен; иначе пробуем GPS высоту
 async function getPressureFromDevice() {
   if ('AbsolutePressureSensor' in window) {
@@ -401,8 +427,7 @@ async function getPressureFromDevice() {
     } catch {}
   }
   // fallback: GPS высота → ICAO давление
-  const pos = await new Promise((res, rej) =>
-    navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
+  const pos = await getGeo();
   if (pos.coords.altitude == null) throw new Error('GPS не вернул высоту');
   return { source: 'gps', altitude: pos.coords.altitude, pressureMbar: pressureFromAltitude(pos.coords.altitude) };
 }
@@ -423,11 +448,12 @@ function attachAtmoButtons(form, pressureField) {
       if (form.pressureMbar) form.pressureMbar.value = w.pressureMbar.toFixed(0);
       if (form.humidity) form.humidity.value = w.humidity.toFixed(0);
       if (form.windSpeed) form.windSpeed.value = w.windSpeed.toFixed(1);
+      if (form.windAngle_deg && w.windDir != null) form.windAngle_deg.value = w.windDir.toFixed(0);
       // событие input на каждом поле — чтобы реактивный код подхватил изменения
-      ['tempC','pressureMbar','humidity','windSpeed'].forEach(n => {
+      ['tempC','pressureMbar','humidity','windSpeed','windAngle_deg'].forEach(n => {
         if (form[n]) form[n].dispatchEvent(new Event('input', { bubbles: true }));
       });
-      toast(`Open-Meteo: ${w.tempC.toFixed(1)}°C · ${w.pressureMbar.toFixed(0)} гПа · ${w.humidity.toFixed(0)}% · ветер ${w.windSpeed.toFixed(1)} м/с`);
+      toast(`Open-Meteo: ${w.tempC.toFixed(1)}°C · ${w.pressureMbar.toFixed(0)} гПа · ${w.humidity.toFixed(0)}% · ветер ${w.windSpeed.toFixed(1)} м/с ${Math.round(w.windDir)}°`);
     } catch (e) { toast('Open-Meteo: ' + e.message); }
   }}, '🌐 Погода по GPS'));
   return wrap;
@@ -499,8 +525,7 @@ function srcPhoneBaro() {
 function srcGPSLat() {
   return { icon: '📱', title: 'GPS-широта', digits: 3,
     action: async () => {
-      const pos = await new Promise((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
+      const pos = await getGeo();
       return pos.coords.latitude;
     } };
 }
@@ -854,14 +879,17 @@ async function editRange(id) {
     numInput('altitude_m', 'Высота, м', r.altitude_m),
     el('div', {},
       el('label', {}, 'GPS'),
-      el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:0', onclick: async () => {
+      el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:0', onclick: async (ev) => {
+        const btn = ev.currentTarget; const old = btn.textContent;
+        btn.textContent = '⏳ Определяю…'; btn.disabled = true;
         try {
-          const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 10000 }));
+          const pos = await getGeo();
           form.lat.value = pos.coords.latitude.toFixed(6);
           form.lon.value = pos.coords.longitude.toFixed(6);
           if (pos.coords.altitude != null) form.altitude_m.value = pos.coords.altitude.toFixed(0);
-          toast('GPS получено');
-        } catch { toast('Не удалось'); }
+          toast(`GPS: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+        } catch (e) { toast('GPS: ' + e.message); }
+        finally { btn.textContent = old; btn.disabled = false; }
       }}, '📍 Захватить')
     )
   ));
@@ -1882,26 +1910,29 @@ route('/calc', async () => {
   const form = el('form', { class: 'card' });
 
   // === Tabs row ===
-  const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
-  form.appendChild(ctrlTabs);
-
   function makeSection(tabId) {
     return el('div', { class: 'form-section', 'data-tab': tabId });
   }
 
-  // === БЫСТРО — то что чаще меняется на стрельбище ===
-  const secQuick = makeSection('quick');
+  // === ЗАКРЕПЛЁННЫЙ блок: то что чаще меняется на стрельбище — всегда видим ===
+  const secQuick = el('div', { class: 'form-pinned' });
+  secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер · скорость · азимут'));
+  secQuick.appendChild(el('div', { class: 'row' },
+    numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
+      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
+    numInputWithSources('windAngle_deg', 'Ветер куда, °', state.windAngle_deg ?? 90,
+      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
+  ));
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('v0', 'V₀, м/с', state.v0 ?? 830),
     numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0)
   ));
-  secQuick.appendChild(el('div', { class: 'row' },
-    numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
-      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
-    numInputWithSources('windAngle_deg', 'Угол ветра, °', state.windAngle_deg ?? 90,
-      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
-  ));
+  // кнопка «🌐 Погода по GPS» прямо здесь — заполняет ветер/темп./давл./влажн.
+  secQuick.appendChild(attachAtmoButtons(form, 'pressureMbar'));
   form.appendChild(secQuick);
+
+  const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
+  form.appendChild(ctrlTabs);
 
   // === ПУЛЯ ===
   const secBullet = makeSection('bullet');
@@ -1956,12 +1987,11 @@ route('/calc', async () => {
 
   // === Заполнение tab-bar ===
   const tabs = [
-    { id: 'quick',  label: '⚡ Быстро' },
     { id: 'bullet', label: '🔫 Пуля' },
     { id: 'atmo',   label: '🌡 Атмо' },
     { id: 'misc',   label: '⚙ Прочее' }
   ];
-  let activeCtrlTab = state.activeCtrlTab || 'quick';
+  let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'bullet';
   function showCtrlTab(id) {
     activeCtrlTab = id;
     state.activeCtrlTab = id;

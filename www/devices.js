@@ -395,8 +395,10 @@ Object.assign(BT, BT.mode === 'native' ? CapacitorBT : WebBT);
 // windDir (в нашу конвенцию "куда дует", не "откуда").
 const Weather = {
   async fetchByGPS() {
-    const pos = await new Promise((res, rej) =>
-      navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 15000 }));
+    const pos = typeof getGeo === 'function'
+      ? await getGeo({ timeout: 15000 })
+      : await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 15000 }));
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
     const url = `https://api.open-meteo.com/v1/forecast` +

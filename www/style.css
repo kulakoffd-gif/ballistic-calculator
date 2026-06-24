@@ -298,6 +298,18 @@ label { text-align: center; }
 }
 .form-section[hidden] { display: none; }
 .form-section { padding: 4px 0; }
+/* Закреплённый блок ветра/скорости — всегда виден, с акцентной рамкой */
+.form-pinned {
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.form-pinned .pinned-title {
+  font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--accent); text-align: center; margin-bottom: 8px;
+}
 .calc-hint {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
   text-transform: uppercase; text-align: center; margin: 4px 0 8px;
