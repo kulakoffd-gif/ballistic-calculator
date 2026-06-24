@@ -2458,52 +2458,15 @@ route('/calc', async () => {
 
   // === HUD area (sticky сверху, всегда видна) ===
   const hudArea = el('div', { class: 'calc-hud-area' });
-  const incBanner = el('button', { type: 'button', class: 'incl-banner', hidden: true });
-  hudArea.appendChild(incBanner);
   hudArea.appendChild(el('div', { id: 'result' }));
   view.appendChild(hudArea);
   view.appendChild(el('div', { class: 'calc-hint' }, '↓ ветер · скорость · атмосфера — меняй, пересчёт мгновенный'));
   view.appendChild(form);
   view.appendChild(el('div', { id: 'calc-extra' }));
 
-  // === Inclination live-warning ===
-  // Подписка на Compass. Если |measured| > 3° или |measured - input| > 1° — баннер.
-  // Tap по баннеру → копируем measured в инпут (live-recalc сработает).
-  const INC_THRESHOLD_ABS = 3;     // ° — «винтовка наклонена»
-  const INC_THRESHOLD_DIFF = 1;    // ° — расхождение с инпутом
-  let lastMeasuredCant = null;
-  function refreshIncBanner() {
-    const m = lastMeasuredCant;
-    const inp = form.cant_deg;
-    const inputVal = inp ? parseFloat(inp.value) || 0 : 0;
-    if (m == null || !isFinite(m)) { incBanner.hidden = true; return; }
-    const big = Math.abs(m) > INC_THRESHOLD_ABS;
-    const diff = Math.abs(m - inputVal) > INC_THRESHOLD_DIFF;
-    if (!big && !diff) { incBanner.hidden = true; return; }
-    incBanner.hidden = false;
-    incBanner.textContent =
-      `⚠ Завал по компасу ${m.toFixed(1)}° (введено ${inputVal.toFixed(1)}°) — тапни чтобы синхронизировать`;
-  }
-  incBanner.addEventListener('click', () => {
-    const m = lastMeasuredCant;
-    if (m == null || !isFinite(m)) return;
-    form.cant_deg.value = m.toFixed(1);
-    form.cant_deg.dispatchEvent(new Event('input', { bubbles: true }));
-    incBanner.hidden = true;
-  });
-  const unsubCompass = Compass.subscribe(st => {
-    lastMeasuredCant = (st && isFinite(st.cant)) ? st.cant : null;
-    refreshIncBanner();
-  });
-  // обновлять баннер при ручном изменении инпута тоже
-  form.addEventListener('input', e => { if (e.target && e.target.name === 'cant_deg') refreshIncBanner(); });
-  // пассивный запуск компаса (без gesture-permission, т.е. только на Android-WebView)
-  if (Compass.supported() && typeof DeviceOrientationEvent.requestPermission !== 'function') {
-    Compass.start().catch(() => {});
-  }
-  // отписка при уходе с роута
-  const cleanup = () => { try { unsubCompass(); } catch {} window.removeEventListener('hashchange', cleanup); };
-  window.addEventListener('hashchange', cleanup);
+  // (Баннер «завал по компасу» убран — на телефоне в руке gamma = наклон самого
+  //  телефона, не винтовки, и баннер срабатывал ложно. Завал вводится вручную в
+  //  Meteo, либо по кнопке-источнику 📐 при необходимости.)
 
   // Live-recalc: любое изменение в форме перезапускает submit (debounced).
   let recalcTimer = null;
