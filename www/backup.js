@@ -105,6 +105,28 @@ async function downloadFromYandex() {
   }
 }
 
+// Полноценная двусторонняя синхронизация через Я.Диск:
+//   1) скачать удалённую базу, 2) слить её в локальную без потерь (LWW по записям),
+//   3) залить объединённый результат обратно. Так оба устройства сходятся к одному.
+let syncing = false;
+async function syncNow() {
+  if (!window.Yadisk || !Yadisk.isConfigured()) return { ok: false, reason: 'no-token' };
+  if (syncing) return { ok: false, reason: 'busy' };
+  syncing = true;
+  try {
+    const remote = await downloadFromYandex();
+    let merged = null;
+    if (remote && remote.data) merged = await Store.mergeAll(remote);
+    const payload = await Store.exportAll();
+    await Yadisk.uploadJSON(JSON.stringify(payload));
+    return { ok: true, merged };
+  } catch (e) {
+    return { ok: false, reason: e?.message || String(e) };
+  } finally {
+    syncing = false;
+  }
+}
+
 // — debounced auto-save: вызывать после каждого изменения —
 let saveTimer = null;
 function scheduleSave() {
@@ -114,9 +136,10 @@ function scheduleSave() {
     if (!r.ok && r.reason !== 'no-filesystem-plugin') {
       console.warn('[backup] save failed:', r.reason);
     }
-    const ry = await uploadToYandex();
-    if (!ry.ok && ry.reason !== 'no-token') {
-      console.warn('[backup/yandex] upload failed:', ry.reason);
+    // Двусторонняя синхронизация (скачать → слить → залить), а не слепая перезапись.
+    const ry = await syncNow();
+    if (!ry.ok && ry.reason !== 'no-token' && ry.reason !== 'busy') {
+      console.warn('[backup/yandex] sync failed:', ry.reason);
     }
   }, 2000);
 }
@@ -134,4 +157,4 @@ function instrumentStore() {
 }
 
 window.Backup = { save, read, exists, restore, isStoreEmpty, instrumentStore,
-                  uploadToYandex, downloadFromYandex };
+                  uploadToYandex, downloadFromYandex, syncNow };

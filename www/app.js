@@ -3846,6 +3846,21 @@ route('/settings', async () => {
         refreshYD();
       } catch (e) { toast('Ошибка: ' + e.message); }
     }}, '✅ Проверить токен'));
+    ydCard.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+      if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
+      toast('Синхронизация…');
+      try {
+        const r = await Backup.syncNow();
+        if (r.ok) {
+          const m = r.merged;
+          toast(m && (m.added || m.updated || m.deleted)
+            ? `Синхронизировано: +${m.added} ✎${m.updated} −${m.deleted}`
+            : 'Синхронизировано — изменений нет');
+          navigate();
+        } else toast('Ошибка: ' + r.reason);
+        refreshYD();
+      } catch (e) { toast('Ошибка: ' + e.message); }
+    }}, '🔄 Синхронизировать (слить обе базы)'));
     ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
       if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
       try {
@@ -3854,7 +3869,7 @@ route('/settings', async () => {
         else toast('Ошибка: ' + r.reason);
         refreshYD();
       } catch (e) { toast('Ошибка: ' + e.message); }
-    }}, '↑ Залить на Я.Диск сейчас'));
+    }}, '↑ Залить на Я.Диск сейчас (перезапись)'));
     ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
       if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
       if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
@@ -4886,26 +4901,29 @@ route('/range-card', async () => {
   if (window.Backup) {
     Backup.instrumentStore();
     try {
-      const empty = await Backup.isStoreEmpty();
-      if (empty) {
-        // 1. Сначала пытаемся Я.Диск
-        let payload = null, source = null;
-        if (window.Yadisk && Yadisk.isConfigured()) {
-          payload = await Backup.downloadFromYandex();
-          if (payload) source = 'Я.Диск';
-        }
-        // 2. Локальный Documents
-        if (!payload && await Backup.exists()) {
-          payload = await Backup.read();
-          if (payload) source = '/Documents';
-        }
-        if (payload && payload.data) {
-          const total = Object.values(payload.data).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
-          if (total > 0 && confirm(
-            `Найден бэкап (${source}, ${total} записей, ${payload.exportedAt?.slice(0,16) || '—'}).\n\nВосстановить базу данных?`
-          )) {
-            try { await Store.importAll(payload); toast('База восстановлена из ' + source); }
-            catch (e) { toast('Ошибка восстановления: ' + e.message); }
+      // 1. Я.Диск настроен → тихая двусторонняя синхронизация в фоне (не блокирует
+      //    первый рендер). Скачать → слить без потерь → залить. При изменениях —
+      //    тост и перерисовка текущего экрана.
+      if (window.Yadisk && Yadisk.isConfigured()) {
+        Backup.syncNow().then(r => {
+          if (r.ok && r.merged && (r.merged.added || r.merged.updated || r.merged.deleted)) {
+            const m = r.merged;
+            toast(`Синхронизировано: +${m.added} ✎${m.updated} −${m.deleted}`);
+            navigate();
+          }
+        }).catch(e => console.warn('[boot/sync]', e));
+      } else if (await Backup.isStoreEmpty()) {
+        // 2. Облако не настроено, база пустая → предложить восстановить из /Documents
+        if (await Backup.exists()) {
+          const payload = await Backup.read();
+          if (payload && payload.data) {
+            const total = Object.values(payload.data).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
+            if (total > 0 && confirm(
+              `Найден бэкап (/Documents, ${total} записей, ${payload.exportedAt?.slice(0,16) || '—'}).\n\nВосстановить базу данных?`
+            )) {
+              try { await Store.importAll(payload); toast('База восстановлена из /Documents'); }
+              catch (e) { toast('Ошибка восстановления: ' + e.message); }
+            }
           }
         }
       }
