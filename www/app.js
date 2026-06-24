@@ -2047,22 +2047,69 @@ route('/calc', async () => {
   });
   windDirHidden.addEventListener('change', buildWindWidget);
 
-  // === ПУЛЯ ===
+  // === ПРОФИЛЬ (оружие + патрон выбираются ОДИН раз; параметры берутся из них) ===
   const secBullet = makeSection('bullet');
-  secBullet.appendChild(selectInput('weaponId', 'Оружие', state.weaponId,
+  secBullet.appendChild(selectInput('weaponId', 'Оружие (профиль)', state.weaponId,
     [{ value: '', label: '— вручную —' }, ...weapons.map(w => ({ value: w.id, label: w.name }))]));
-  secBullet.appendChild(selectInput('cartridgeId', 'Патрон', state.cartridgeId,
+  secBullet.appendChild(selectInput('cartridgeId', 'Патрон (профиль)', state.cartridgeId,
     [{ value: '', label: '— вручную —' }, ...cartridges.map(c => ({ value: c.id, label: c.name }))]));
-  secBullet.appendChild(el('div', { class: 'row' },
-    numInput('bc', 'BC (lb/in²)', state.bc ?? 0.45),
-    selectInput('dragModel', 'Модель', state.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])
-  ));
-  secBullet.appendChild(el('div', { class: 'row' },
-    numInput('bulletMass_gr', 'Масса, gr', state.bulletMass_gr ?? 175),
-    numInput('sightHeight_mm', 'Высота прицела, мм', state.sightHeight_mm ?? 50)
-  ));
-  secBullet.appendChild(numInput('zeroDistance', 'Пристрелка, м', state.zeroDistance ?? 100));
+
+  // сводка активного профиля (только чтение) + кнопки редактирования
+  const profSummary = el('div', { class: 'profile-summary' });
+  secBullet.appendChild(profSummary);
+  const profEdit = el('div', { class: 'row', style: 'margin-top:6px' });
+  profEdit.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+    onclick: () => { location.hash = form.weaponId.value ? '#/weapon/' + form.weaponId.value : '#/weapons'; } },
+    '✎ Оружие'));
+  profEdit.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+    onclick: () => { location.hash = form.cartridgeId.value ? '#/cartridge/' + form.cartridgeId.value : '#/cartridges'; } },
+    '✎ Патрон'));
+  secBullet.appendChild(profEdit);
+
+  // Ручные поля — показываются ТОЛЬКО когда профиль не выбран (запасной режим).
+  const bulletManual = el('div', { class: 'manual-group' },
+    el('div', { class: 'muted', style: 'font-size:11px;margin:8px 0 4px' }, 'Пуля вручную:'),
+    el('div', { class: 'row' },
+      numInput('bc', 'BC (lb/in²)', state.bc ?? 0.45),
+      selectInput('dragModel', 'Модель', state.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])),
+    numInput('bulletMass_gr', 'Масса, gr', state.bulletMass_gr ?? 175));
+  secBullet.appendChild(bulletManual);
+  const gunManual = el('div', { class: 'manual-group' },
+    el('div', { class: 'muted', style: 'font-size:11px;margin:8px 0 4px' }, 'Оружие вручную:'),
+    el('div', { class: 'row' },
+      numInput('sightHeight_mm', 'Высота прицела, мм', state.sightHeight_mm ?? 50),
+      numInput('zeroDistance', 'Пристрелка, м', state.zeroDistance ?? 100)));
+  secBullet.appendChild(gunManual);
   form.appendChild(secBullet);
+
+  function updateProfileView() {
+    const w = weapons.find(x => x.id === form.weaponId.value);
+    const c = cartridges.find(x => x.id === form.cartridgeId.value);
+    bulletManual.hidden = !!c;
+    gunManual.hidden = !!w;
+    profSummary.innerHTML = '';
+    if (!w && !c) {
+      profSummary.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
+        'Профиль не выбран — параметры вводятся вручную ниже. Создай профиль в «Оружие»/«Патроны», чтобы не вводить каждый раз.'));
+      return;
+    }
+    const rows = [];
+    if (c) {
+      rows.push(['Патрон', c.name]);
+      rows.push(['BC · модель', `${fmt(effectiveBC(c), 3)} ${effectiveDragModel(c)}`]);
+      if (c.bulletMass_gr) rows.push(['Масса', fmt(c.bulletMass_gr, 0) + ' gr']);
+      if (c.v0) rows.push(['V₀ (база)', fmt(c.v0, 0) + ' м/с']);
+    }
+    if (w) {
+      rows.push(['Оружие', w.name]);
+      if (w.sightHeight_mm != null) rows.push(['Высота прицела', fmt(w.sightHeight_mm, 0) + ' мм']);
+      if (w.zeroDistance != null) rows.push(['Пристрелка', fmt(w.zeroDistance, 0) + ' м']);
+      if (w.twist_in != null) rows.push(['Твист', fmt(w.twist_in, 1) + '″ ' + (w.twistRight !== false ? 'R' : 'L')]);
+    }
+    const kv = el('div', { class: 'kv', style: 'font-size:13px' });
+    for (const [k, v] of rows) { kv.appendChild(el('div', { class: 'k' }, k)); kv.appendChild(el('div', { class: 'v' }, String(v))); }
+    profSummary.appendChild(kv);
+  }
 
   // === АТМОСФЕРА ===
   const secAtmo = makeSection('atmo');
@@ -2100,7 +2147,7 @@ route('/calc', async () => {
 
   // === Заполнение tab-bar ===
   const tabs = [
-    { id: 'bullet', label: '🔫 Пуля' },
+    { id: 'bullet', label: '🎯 Профиль' },
     { id: 'atmo',   label: '🌡 Атмо' },
     { id: 'misc',   label: '⚙ Прочее' }
   ];
@@ -2125,6 +2172,7 @@ route('/calc', async () => {
       form.sightHeight_mm.value = w.sightHeight_mm ?? form.sightHeight_mm.value;
       form.zeroDistance.value = w.zeroDistance ?? form.zeroDistance.value;
     }
+    updateProfileView();
   });
   form.cartridgeId.addEventListener('change', () => {
     const c = cartridges.find(x => x.id === form.cartridgeId.value);
@@ -2134,7 +2182,16 @@ route('/calc', async () => {
       form.v0.value = c.v0 ?? form.v0.value;
       form.bulletMass_gr.value = c.bulletMass_gr ?? form.bulletMass_gr.value;
     }
+    updateProfileView();
   });
+  // первичная синхронизация полей из выбранного профиля (без события — чтобы не зациклить)
+  (() => {
+    const w = weapons.find(x => x.id === form.weaponId.value);
+    if (w) { form.sightHeight_mm.value = w.sightHeight_mm ?? form.sightHeight_mm.value; form.zeroDistance.value = w.zeroDistance ?? form.zeroDistance.value; }
+    const c = cartridges.find(x => x.id === form.cartridgeId.value);
+    if (c) { form.bc.value = effectiveBC(c); form.dragModel.value = c.dragModel || 'G1'; form.v0.value = c.v0 ?? form.v0.value; form.bulletMass_gr.value = c.bulletMass_gr ?? form.bulletMass_gr.value; }
+    updateProfileView();
+  })();
 
   form.addEventListener('submit', async e => {
     e.preventDefault();

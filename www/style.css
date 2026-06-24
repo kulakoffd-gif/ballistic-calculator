@@ -338,6 +338,13 @@ label { text-align: center; }
   color: var(--text); font-size: 14px; letter-spacing: 0.3px;
 }
 .calc-reticle > summary::-webkit-details-marker { display: none; }
+/* сводка активного профиля (только чтение) на главном экране */
+.profile-summary {
+  margin-top: 8px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+}
+.profile-summary .kv { margin: 0; }
+.manual-group[hidden] { display: none; }
 .calc-reticle[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .calc-hint {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
