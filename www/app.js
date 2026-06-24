@@ -2082,9 +2082,11 @@ route('/calc', async () => {
         const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
         if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist);
       } }, '🎯 Промах — пересчитать поправку');
+    const detailStrip = el('div', { class: 'hud-detail' });
     solCard.appendChild(distLabel);
     solCard.appendChild(mainGrid);
     solCard.appendChild(stepperRow);
+    solCard.appendChild(detailStrip);
     solCard.appendChild(spotBtn);
     out.appendChild(solCard);
 
@@ -2097,6 +2099,7 @@ route('/calc', async () => {
       }
       const r2 = Ballistics.solve(inp);
       const row = r2.rows[0];
+      if (row) row.mach = r2.speedOfSound ? row.vel_mps / r2.speedOfSound : null;
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
       return row;
     }
@@ -2148,6 +2151,20 @@ route('/calc', async () => {
         driftAxis2.appendChild(drVal2);
         driftAxis2.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row2.drift_moa), 1)} MOA · ${fmt(Math.abs(row2.drift_m) * 100, 0)} см`));
         mainGrid.appendChild(driftAxis2);
+      }
+
+      // — строка деталей (AB Quantum-style): TOF · энергия · скорость · Mach —
+      detailStrip.innerHTML = '';
+      const cells = [
+        ['TOF', `${fmt(row.tof_s, 2)} с`],
+        ['Энергия', row.energy_J != null ? `${fmt(row.energy_J, 0)} Дж` : '—'],
+        ['Скорость', `${fmt(row.vel_mps, 0)} м/с`],
+        ['Mach', row.mach != null ? fmt(row.mach, 2) : '—'],
+      ];
+      for (const [k, v] of cells) {
+        detailStrip.appendChild(el('div', { class: 'hud-detail-cell' },
+          el('div', { class: 'hud-detail-v' }, v),
+          el('div', { class: 'hud-detail-k' }, k)));
       }
     }
 

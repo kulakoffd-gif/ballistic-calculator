@@ -291,6 +291,15 @@ label { text-align: center; }
 .calc-hud-area .range-stepper button.step { width: 38px; height: 38px; font-size: 20px; }
 .calc-hud-area .range-stepper .range-input { font-size: 20px; width: 80px; }
 .calc-hud-area .dist-pick { font-size: 10px; }
+/* Строка деталей под решением (AB Quantum-style): TOF · энергия · скорость · Mach */
+.hud-detail {
+  display: flex; justify-content: space-between; gap: 6px;
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.hud-detail-cell { flex: 1; text-align: center; min-width: 0; }
+.hud-detail-v { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.hud-detail-k { font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--muted); }
 .calc-ctrl-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 10px 0 12px; }
 .calc-ctrl-tabs .chip {
   flex: 1; min-width: 0; text-align: center; padding: 10px 6px;
