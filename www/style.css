@@ -319,6 +319,15 @@ label { text-align: center; }
   font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
   color: var(--accent); text-align: center; margin-bottom: 8px;
 }
+/* компас ветра рядом с полем скорости */
+.wind-row { display: flex; gap: 12px; align-items: center; }
+.wind-col { flex: 1; min-width: 0; }
+.wind-compass { flex: 0 0 140px; display: flex; justify-content: center; }
+.wind-compass .compass { width: 140px; max-width: 140px; }
+.wind-readout {
+  font-size: 10px; color: var(--muted); text-align: center;
+  margin-top: 6px; line-height: 1.3;
+}
 .calc-hint {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
   text-transform: uppercase; text-align: center; margin: 4px 0 8px;

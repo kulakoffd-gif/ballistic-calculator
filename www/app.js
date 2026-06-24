@@ -448,9 +448,13 @@ function attachAtmoButtons(form, pressureField) {
       if (form.pressureMbar) form.pressureMbar.value = w.pressureMbar.toFixed(0);
       if (form.humidity) form.humidity.value = w.humidity.toFixed(0);
       if (form.windSpeed) form.windSpeed.value = w.windSpeed.toFixed(1);
-      if (form.windAngle_deg && w.windDir != null) form.windAngle_deg.value = w.windDir.toFixed(0);
+      // направление ветра «куда дует» (абсолютное) → событие 'change' перерисует компас
+      if (form.windDir && w.windDir != null) {
+        form.windDir.value = w.windDir.toFixed(0);
+        form.windDir.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       // событие input на каждом поле — чтобы реактивный код подхватил изменения
-      ['tempC','pressureMbar','humidity','windSpeed','windAngle_deg'].forEach(n => {
+      ['tempC','pressureMbar','humidity','windSpeed'].forEach(n => {
         if (form[n]) form[n].dispatchEvent(new Event('input', { bubbles: true }));
       });
       toast(`Open-Meteo: ${w.tempC.toFixed(1)}°C · ${w.pressureMbar.toFixed(0)} гПа · ${w.humidity.toFixed(0)}% · ветер ${w.windSpeed.toFixed(1)} м/с ${Math.round(w.windDir)}°`);
@@ -1914,15 +1918,27 @@ route('/calc', async () => {
     return el('div', { class: 'form-section', 'data-tab': tabId });
   }
 
-  // === ЗАКРЕПЛЁННЫЙ блок: то что чаще меняется на стрельбище — всегда видим ===
+  // === ЗАКРЕПЛЁННЫЙ блок: ветер (компас) · скорость · азимут — всегда видим ===
   const secQuick = el('div', { class: 'form-pinned' });
   secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер · скорость · азимут'));
-  secQuick.appendChild(el('div', { class: 'row' },
-    numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
-      [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]),
-    numInputWithSources('windAngle_deg', 'Ветер куда, °', state.windAngle_deg ?? 90,
-      [srcOpenMeteo('windDir', 0), srcKestrel('windDir', 0)])
-  ));
+
+  // Абсолютное направление ветра «куда дует» (скрытое поле — источник правды).
+  // В solver уходит ОТНОСИТЕЛЬНЫЙ угол через solverWindAngle(windDir, azimuth).
+  const windDirHidden = el('input', { type: 'hidden', name: 'windDir',
+    value: state.windDir ?? state.windAngle_deg ?? 90 });
+  secQuick.appendChild(windDirHidden);
+
+  const windRow = el('div', { class: 'wind-row' });
+  const windCol = el('div', { class: 'wind-col' });
+  windCol.appendChild(numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
+    [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]));
+  const windReadout = el('div', { class: 'wind-readout' });
+  windCol.appendChild(windReadout);
+  const compassWrap = el('div', { class: 'wind-compass' });
+  windRow.appendChild(windCol);
+  windRow.appendChild(compassWrap);
+  secQuick.appendChild(windRow);
+
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('v0', 'V₀, м/с', state.v0 ?? 830),
     numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0)
@@ -1933,6 +1949,27 @@ route('/calc', async () => {
 
   const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
   form.appendChild(ctrlTabs);
+
+  // Компас ветра: серая стрелка-винтовка = азимут, оранжевая = направление ветра.
+  let windCompass = null;
+  function buildWindCompass() {
+    compassWrap.innerHTML = '';
+    const az = parseFloat(form.azimuth_deg.value) || 0;
+    const cur = parseFloat(windDirHidden.value) || 0;
+    windCompass = createCompass({ value: cur, fireDir: az, onChange: v => {
+      windDirHidden.value = Math.round(v);
+      windReadout.textContent = `куда дует ${Math.round(v)}° · ${windToClock(v, az)} от ствола`;
+      windDirHidden.dispatchEvent(new Event('input', { bubbles: true }));
+    }});
+    compassWrap.appendChild(windCompass.svg);
+  }
+  buildWindCompass();
+  // азимут изменился → перерисовать (повернётся серая стрелка); направление из
+  // Open-Meteo приходит как 'change' на скрытом поле → тоже перерисовать.
+  form.addEventListener('input', e => {
+    if (e.target && e.target.name === 'azimuth_deg') buildWindCompass();
+  });
+  windDirHidden.addEventListener('change', buildWindCompass);
 
   // === ПУЛЯ ===
   const secBullet = makeSection('bullet');
@@ -2049,7 +2086,9 @@ route('/calc', async () => {
       sightHeight: (d.sightHeight_mm || 50) / 1000,
       zeroDistance: d.zeroDistance, targetDistance: Math.max(...distances, 1000),
       tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity,
-      windSpeed: d.windSpeed, windAngle_deg: d.windAngle_deg, shotAngle_deg: d.shotAngle_deg,
+      windSpeed: d.windSpeed,
+      windAngle_deg: solverWindAngle(parseFloat(d.windDir) || 0, d.azimuth_deg || 0),
+      shotAngle_deg: d.shotAngle_deg,
       latitude_deg: d.latitude_deg, azimuth_deg: d.azimuth_deg,
       steps: distances
     };
