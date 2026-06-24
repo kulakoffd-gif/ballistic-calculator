@@ -425,6 +425,13 @@ async function captureHeading() {
     });
   });
 }
+// Если iOS сообщает плохую точность компаса — вернёт подсказку про «восьмёрку».
+function compassWarn() {
+  const acc = Compass.state && Compass.state.accuracy;
+  return (acc == null || acc < 0 || acc > 20)
+    ? '⚠ Компас неточен — поводи телефоном «восьмёркой» 5 сек и повтори'
+    : '';
+}
 
 // читаем барометр телефона если доступен; иначе пробуем GPS высоту
 async function getPressureFromDevice() {
@@ -2002,7 +2009,7 @@ route('/calc', async () => {
         const h = await captureHeading();
         form.azimuth_deg.value = Math.round(h);
         form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true }));
-        toast(`Азимут цели: ${Math.round(h)}°`);
+        toast(compassWarn() || `Азимут цели: ${Math.round(h)}°`);
       } catch (e) { toast('Компас: ' + e.message); }
       finally { b.textContent = old; b.disabled = false; }
     } }, '🎯 Навёл на цель');
@@ -2013,7 +2020,7 @@ route('/calc', async () => {
         const h = await captureHeading(); // спинка телефона смотрит ОТКУДА дует ветер
         windDirHidden._commit(h + 180);   // h = «откуда», в TO это +180
         buildWindWidget();
-        toast(`Ветер откуда: ${Math.round(h)}°`);
+        toast(compassWarn() || `Ветер откуда: ${Math.round(h)}°`);
       } catch (e) { toast('Компас: ' + e.message); }
       finally { b.textContent = old; b.disabled = false; }
     } }, '🌬 Откуда ветер');

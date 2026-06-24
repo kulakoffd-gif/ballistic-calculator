@@ -11,7 +11,7 @@
 // ═════════════════════════════ COMPASS ═════════════════════════════
 const Compass = {
   listeners: new Set(),
-  state: { heading: null, cant: null, pitch: null, absolute: false },
+  state: { heading: null, cant: null, pitch: null, absolute: false, accuracy: null },
   active: false,
   _handler: null,
 
@@ -29,16 +29,19 @@ const Compass = {
     const handler = (e) => {
       let heading = this.state.heading;
       let absolute = this.state.absolute;
+      // webkitCompassAccuracy: градусы неопределённости; <0 = не откалиброван.
+      let accuracy = this.state.accuracy;
       if (e.webkitCompassHeading != null) {
         heading = e.webkitCompassHeading;
         absolute = true;
+        if (e.webkitCompassAccuracy != null) accuracy = e.webkitCompassAccuracy;
       } else if (e.absolute && e.alpha != null) {
         heading = (360 - e.alpha) % 360;
         absolute = true;
       } else if (e.alpha != null && !absolute) {
         heading = (360 - e.alpha) % 360;
       }
-      this.state = { heading, cant: e.gamma, pitch: e.beta, absolute };
+      this.state = { heading, cant: e.gamma, pitch: e.beta, absolute, accuracy };
       for (const cb of this.listeners) try { cb(this.state); } catch {}
     };
     this._handler = handler;
