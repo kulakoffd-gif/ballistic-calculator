@@ -79,7 +79,7 @@ Ballistic Calculator/
 - Поллит `https://api.github.com/repos/kulakoffd-gif/ballistic-calculator/actions/runs?per_page=1`
 - При `conclusion=success` качает artifact zip и кладёт `app-debug.apk` → `~/Downloads/BalisticNote-Pro-debug.apk`
 
-**GitHub PAT (token)**: `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` — был использован в чате, можно отозвать и создать новый на `github.com/settings/tokens`. Нужны scopes: `repo` + `workflow`.
+**GitHub PAT (token)**: НЕ хранить в репозитории. Создавать заново на `github.com/settings/tokens` (scopes: `repo` + `workflow`) и передавать в сессию по запросу. Старый токен, ранее лежавший здесь, отозван.
 
 ---
 
