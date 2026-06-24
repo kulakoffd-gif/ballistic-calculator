@@ -189,23 +189,31 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
 
   // wind arrow group (orange, поверх)
   const arrow = document.createElementNS(NS, 'g');
+  // Указатель ветра: ХВОСТ (колечко, -y) = ОТКУДА; ОСТРИЁ (+y) = КУДА дует.
+  // Группа поворачивается на «откуда»-азимут, поэтому хвост смотрит на источник.
   arrow.innerHTML = `
-    <line x1="0" y1="0" x2="0" y2="-58" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
-    <polygon points="0,-72 -7,-58 7,-58" fill="#ff8b3d"/>
+    <circle cx="0" cy="-58" r="5" fill="none" stroke="#ff8b3d" stroke-width="3"/>
+    <line x1="0" y1="-58" x2="0" y2="58" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="0,72 -8,56 8,56" fill="#ff8b3d"/>
     <circle cx="0" cy="0" r="4" fill="#ff8b3d"/>
   `;
   svg.appendChild(arrow);
+  // центральная втулка — чтобы подпись читалась поверх стрелки
+  const hub = document.createElementNS(NS, 'circle');
+  hub.setAttribute('cx', 0); hub.setAttribute('cy', 0); hub.setAttribute('r', 20);
+  hub.setAttribute('fill', '#0b0f14'); hub.setAttribute('stroke', '#2a4a35'); hub.setAttribute('stroke-width', '1');
+  svg.appendChild(hub);
   // center number
   const centerNum = document.createElementNS(NS, 'text');
-  centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 22);
+  centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 3);
   centerNum.setAttribute('text-anchor', 'middle');
-  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '14');
-  centerNum.setAttribute('font-weight', '500');
+  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '13');
+  centerNum.setAttribute('font-weight', '600');
   svg.appendChild(centerNum);
   const subNum = document.createElementNS(NS, 'text');
-  subNum.setAttribute('x', 0); subNum.setAttribute('y', 36);
+  subNum.setAttribute('x', 0); subNum.setAttribute('y', 13);
   subNum.setAttribute('text-anchor', 'middle');
-  subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '6');
+  subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '5.5');
   subNum.textContent = subLabel;
   svg.appendChild(subNum);
 
@@ -289,21 +297,27 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
   }
   // стрелка от центра к часовой позиции (откуда дует)
   const arrow = document.createElementNS(NS, 'g');
-  arrow.innerHTML = `<line x1="0" y1="0" x2="0" y2="-50" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
-    <polygon points="0,-58 -6,-48 6,-48" fill="#ff8b3d"/>
+  // ХВОСТ (колечко, -y) = ОТКУДА (на цифре часов); ОСТРИЁ (+y) = КУДА дует.
+  arrow.innerHTML = `<circle cx="0" cy="-50" r="5" fill="none" stroke="#ff8b3d" stroke-width="3"/>
+    <line x1="0" y1="-50" x2="0" y2="50" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="0,60 -7,46 7,46" fill="#ff8b3d"/>
     <circle cx="0" cy="0" r="4" fill="#ff8b3d"/>`;
   svg.appendChild(arrow);
-  // центральная подпись
+  // центральная втулка + подпись (поверх стрелки)
+  const hub = document.createElementNS(NS, 'circle');
+  hub.setAttribute('cx', 0); hub.setAttribute('cy', 0); hub.setAttribute('r', 22);
+  hub.setAttribute('fill', '#0b0f14'); hub.setAttribute('stroke', '#2a4a35'); hub.setAttribute('stroke-width', '1');
+  svg.appendChild(hub);
   const centerNum = document.createElementNS(NS, 'text');
-  centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 24);
+  centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 2);
   centerNum.setAttribute('text-anchor', 'middle');
-  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '20');
+  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '17');
   centerNum.setAttribute('font-weight', '600');
   svg.appendChild(centerNum);
   const subNum = document.createElementNS(NS, 'text');
-  subNum.setAttribute('x', 0); subNum.setAttribute('y', 36);
+  subNum.setAttribute('x', 0); subNum.setAttribute('y', 13);
   subNum.setAttribute('text-anchor', 'middle');
-  subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '6');
+  subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '5.5');
   subNum.textContent = 'ВЕТЕР ОТКУДА';
   svg.appendChild(subNum);
 
