@@ -271,7 +271,6 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
     t.setAttribute('fill', '#7a8699');
     t.style.cursor = 'pointer';
     t.textContent = H;
-    t.addEventListener('click', () => setHour(H));
     svg.appendChild(t);
     labels.push({ H, el: t });
   }
@@ -308,40 +307,47 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
   subNum.textContent = 'ВЕТЕР ОТКУДА';
   svg.appendChild(subNum);
 
-  let currentH = 12;
-  function hourFromAbs(windToDir) {
-    // обратное преобразование windToDir → H
-    const rel = ((windToDir - shotAz - 180) % 360 + 360) % 360; // 0..360
-    let H = Math.round(rel / 30); if (H === 0) H = 12;
-    return H;
+  let currentAng = 0; // градусы по часовой от 12 (= направление ОТКУДА относительно цели)
+  // Непрерывный угол → подпись часов:минут + плавный windToDir (без снэпа к целым).
+  function setAngleRaw(ang) {
+    currentAng = ((ang % 360) + 360) % 360;
+    arrow.setAttribute('transform', `rotate(${currentAng})`);
+    const totalMin = Math.round(currentAng / 30 * 60); // минут от 12 ч
+    let H = Math.floor(totalMin / 60) % 12; let M = totalMin % 60;
+    if (H === 0) H = 12;
+    centerNum.textContent = `${H}:${String(M).padStart(2, '0')}`;
+    const nearH = (Math.round(currentAng / 30) % 12) || 12;
+    labels.forEach(l => l.el.setAttribute('fill', l.H === nearH ? '#ff8b3d' : '#7a8699'));
+    const windToDir = ((shotAz + currentAng + 180) % 360 + 360) % 360;
+    if (onChange) onChange(windToDir, nearH);
   }
-  function setHour(H) {
-    currentH = H;
-    const ang = H * 30; // от верха по часовой
-    arrow.setAttribute('transform', `rotate(${ang})`);
-    centerNum.textContent = H + ':00';
-    labels.forEach(l => l.el.setAttribute('fill', l.H === H ? '#ff8b3d' : '#7a8699'));
-    const windToDir = ((shotAz + H * 30 + 180) % 360 + 360) % 360;
-    if (onChange) onChange(windToDir, H);
-  }
+  function setHour(H) { setAngleRaw(H * 30); }
   function setFromAbs(windToDir) {
-    setHour(hourFromAbs(windToDir));
+    setAngleRaw(((windToDir - shotAz - 180) % 360 + 360) % 360);
   }
-  // фон-сектор для тапа в любую часть круга
-  bg.style.cursor = 'pointer';
-  svg.addEventListener('click', (e) => {
+  // перетаскивание стрелки (как в компасе): любой угол, не только целые часы
+  function angleAt(e) {
     const rect = svg.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const dx = e.clientX - cx, dy = e.clientY - cy;
-    if (Math.hypot(dx, dy) < 6) return; // центр игнор
+    const p = e.touches ? e.touches[0] : e;
+    const dx = p.clientX - cx, dy = p.clientY - cy;
     let a = Math.atan2(dx, -dy) * 180 / Math.PI; // 0 = вверх (12 ч)
-    if (a < 0) a += 360;
-    let H = Math.round(a / 30); if (H === 0) H = 12; if (H > 12) H = H - 12;
-    setHour(H);
-  });
+    return (a + 360) % 360;
+  }
+  let drag = false;
+  function onDown(e) { drag = true; setAngleRaw(angleAt(e)); e.preventDefault(); }
+  function onMove(e) { if (drag) { setAngleRaw(angleAt(e)); e.preventDefault(); } }
+  function onUp() { drag = false; }
+  bg.style.cursor = 'grab';
+  svg.addEventListener('mousedown', onDown);
+  svg.addEventListener('touchstart', onDown, { passive: false });
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('mouseup', onUp);
+  window.addEventListener('touchend', onUp);
   setFromAbs(value);
-  return { svg, setHour, setFromAbs, get hour() { return currentH; } };
+  return { svg, setHour, setFromAbs, get hour() { return (Math.round(currentAng / 30) % 12) || 12; } };
 }
 
 // ============== forms ==============
