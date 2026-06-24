@@ -40,7 +40,7 @@ button { font-family: inherit; }
 .topbar h1 {
   flex: 1; margin: 0; font-size: 15px; font-weight: 600;
   letter-spacing: 2px; text-transform: uppercase;
-  text-align: center;
+  text-align: center; text-indent: 2px;  /* компенсация хвоста letter-spacing */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .topbar .sub {
@@ -53,6 +53,8 @@ button { font-family: inherit; }
   border-radius: 10px; cursor: pointer;
 }
 .ico:active { background: var(--panel-2); }
+/* скрытая кнопка «назад» сохраняет место — чтобы заголовок был ровно по центру */
+.topbar .ico[hidden] { display: grid; visibility: hidden; }
 
 /* ===== progress (wizard) ===== */
 .progress {
@@ -552,10 +554,12 @@ label { text-align: center; }
 .splash .name {
   font-size: 28px; letter-spacing: 8px; color: var(--accent);
   font-weight: 500; margin: 6px 0;
+  text-align: center; text-indent: 8px;  /* компенсация хвоста letter-spacing */
 }
 .splash .tag {
   font-size: 11px; color: var(--muted); letter-spacing: 3px;
   text-transform: uppercase;
+  text-align: center; text-indent: 3px;
 }
 .splash .actions {
   width: 100%; max-width: 360px; margin-top: 80px;
