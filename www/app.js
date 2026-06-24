@@ -118,7 +118,7 @@ function solverWindAngle(windToDirDeg, shotAzimuthDeg) {
 // ============== compass SVG ==============
 // fireDir (опц.) — азимут направления огня (gray стрелка). Если задан, рисуется
 // вторая «фоновая» стрелка-винтовка для ориентира.
-function createCompass({ value = 0, fireDir = null, onChange, size = 280 }) {
+function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ' }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '-100 -100 200 200');
@@ -206,7 +206,7 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280 }) {
   subNum.setAttribute('x', 0); subNum.setAttribute('y', 36);
   subNum.setAttribute('text-anchor', 'middle');
   subNum.setAttribute('fill', '#7a8699'); subNum.setAttribute('font-size', '6');
-  subNum.textContent = 'КУДА ДУЕТ';
+  subNum.textContent = subLabel;
   svg.appendChild(subNum);
 
   function setAngle(a) {
@@ -410,6 +410,19 @@ function getGeo({ highAccuracy = true, timeout = 12000 } = {}) {
         reject(new Error(geoErrMsg(e)));
       }
     }, { enableHighAccuracy: highAccuracy, timeout, maximumAge: 0 });
+  });
+}
+
+// Захват магнитного курса компасом телефона (куда «смотрит» спинка телефона).
+// На iOS Compass.start() запросит разрешение на ориентацию.
+async function captureHeading() {
+  await Compass.start();
+  if (Compass.state.heading != null) return Compass.state.heading;
+  return new Promise((resolve, reject) => {
+    const to = setTimeout(() => { try { unsub(); } catch {} reject(new Error('компас не дал данные — поводи телефоном')); }, 5000);
+    const unsub = Compass.subscribe(st => {
+      if (st && st.heading != null) { clearTimeout(to); unsub(); resolve(st.heading); }
+    });
   });
 }
 
@@ -1918,26 +1931,95 @@ route('/calc', async () => {
     return el('div', { class: 'form-section', 'data-tab': tabId });
   }
 
-  // === ЗАКРЕПЛЁННЫЙ блок: ветер (компас) · скорость · азимут — всегда видим ===
+  // === ЗАКРЕПЛЁННЫЙ блок: ветер (ОТКУДА дует) · скорость · азимут — всегда видим ===
   const secQuick = el('div', { class: 'form-pinned' });
-  secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер · скорость · азимут'));
+  secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер (откуда дует) · скорость · азимут'));
 
-  // Абсолютное направление ветра «куда дует» (скрытое поле — источник правды).
-  // В solver уходит ОТНОСИТЕЛЬНЫЙ угол через solverWindAngle(windDir, azimuth).
+  // Источник правды — абсолютное направление «куда дует» (для solver через
+  // solverWindAngle). В интерфейсе показываем «ОТКУДА» = +180° (межд. стандарт).
   const windDirHidden = el('input', { type: 'hidden', name: 'windDir',
     value: state.windDir ?? state.windAngle_deg ?? 90 });
   secQuick.appendChild(windDirHidden);
+
+  // переключатель способа ввода: компас (азимут) / часы (от цели)
+  let windMode = localStorage.getItem('calcWindMode') || 'compass';
+  const modeChips = el('div', { class: 'chips', style: 'margin-bottom:8px' });
+  const widgetWrap = el('div', { class: 'wind-compass' });
+  const windReadout = el('div', { class: 'wind-readout' });
+
+  windDirHidden._commit = (windTo) => {
+    const az = parseFloat(form.azimuth_deg.value) || 0;
+    windTo = ((windTo % 360) + 360) % 360;
+    windDirHidden.value = Math.round(windTo);
+    const windFrom = ((windTo + 180) % 360 + 360) % 360;
+    windReadout.textContent = `откуда ${Math.round(windFrom)}° · ${windToClock(windTo, az)} от цели`;
+    windDirHidden.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  function buildWindWidget() {
+    widgetWrap.innerHTML = '';
+    const az = parseFloat(form.azimuth_deg.value) || 0;
+    const windTo = parseFloat(windDirHidden.value) || 0;
+    if (windMode === 'clock') {
+      const wc = createWindClock({ value: windTo, shotAz: az,
+        onChange: (wt) => windDirHidden._commit(wt) });
+      widgetWrap.appendChild(wc.svg);
+    } else {
+      const windFrom = ((windTo + 180) % 360 + 360) % 360;
+      const cmp = createCompass({ value: windFrom, fireDir: az, subLabel: 'ОТКУДА',
+        onChange: (vFrom) => windDirHidden._commit(vFrom + 180) });
+      widgetWrap.appendChild(cmp.svg);
+    }
+    // обновить подпись без повторного recalc
+    const windFrom = ((windTo + 180) % 360 + 360) % 360;
+    windReadout.textContent = `откуда ${Math.round(windFrom)}° · ${windToClock(windTo, az)} от цели`;
+  }
+  for (const [id, label] of [['compass', '🧭 Компас'], ['clock', '🕐 Часы']]) {
+    modeChips.appendChild(el('div', { class: 'chip' + (windMode === id ? ' active' : ''),
+      onclick: (e) => {
+        windMode = id; localStorage.setItem('calcWindMode', id);
+        [...modeChips.children].forEach(ch => ch.classList.toggle('active', ch === e.currentTarget));
+        buildWindWidget();
+      } }, label));
+  }
+  secQuick.appendChild(modeChips);
 
   const windRow = el('div', { class: 'wind-row' });
   const windCol = el('div', { class: 'wind-col' });
   windCol.appendChild(numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
     [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]));
-  const windReadout = el('div', { class: 'wind-readout' });
   windCol.appendChild(windReadout);
-  const compassWrap = el('div', { class: 'wind-compass' });
   windRow.appendChild(windCol);
-  windRow.appendChild(compassWrap);
+  windRow.appendChild(widgetWrap);
   secQuick.appendChild(windRow);
+
+  // захват азимутов компасом телефона (вариант 2): наводишь спинкой — фиксируешь
+  const capRow = el('div', { class: 'row', style: 'margin-top:8px' });
+  const capTarget = el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+    onclick: async (ev) => {
+      const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
+      try {
+        const h = await captureHeading();
+        form.azimuth_deg.value = Math.round(h);
+        form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true }));
+        toast(`Азимут цели: ${Math.round(h)}°`);
+      } catch (e) { toast('Компас: ' + e.message); }
+      finally { b.textContent = old; b.disabled = false; }
+    } }, '🎯 Навёл на цель');
+  const capWind = el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+    onclick: async (ev) => {
+      const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
+      try {
+        const h = await captureHeading(); // спинка телефона смотрит ОТКУДА дует ветер
+        windDirHidden._commit(h + 180);   // h = «откуда», в TO это +180
+        buildWindWidget();
+        toast(`Ветер откуда: ${Math.round(h)}°`);
+      } catch (e) { toast('Компас: ' + e.message); }
+      finally { b.textContent = old; b.disabled = false; }
+    } }, '🌬 Откуда ветер');
+  capRow.appendChild(capTarget);
+  capRow.appendChild(capWind);
+  secQuick.appendChild(capRow);
 
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('v0', 'V₀, м/с', state.v0 ?? 830),
@@ -1950,26 +2032,13 @@ route('/calc', async () => {
   const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
   form.appendChild(ctrlTabs);
 
-  // Компас ветра: серая стрелка-винтовка = азимут, оранжевая = направление ветра.
-  let windCompass = null;
-  function buildWindCompass() {
-    compassWrap.innerHTML = '';
-    const az = parseFloat(form.azimuth_deg.value) || 0;
-    const cur = parseFloat(windDirHidden.value) || 0;
-    windCompass = createCompass({ value: cur, fireDir: az, onChange: v => {
-      windDirHidden.value = Math.round(v);
-      windReadout.textContent = `куда дует ${Math.round(v)}° · ${windToClock(v, az)} от ствола`;
-      windDirHidden.dispatchEvent(new Event('input', { bubbles: true }));
-    }});
-    compassWrap.appendChild(windCompass.svg);
-  }
-  buildWindCompass();
-  // азимут изменился → перерисовать (повернётся серая стрелка); направление из
-  // Open-Meteo приходит как 'change' на скрытом поле → тоже перерисовать.
+  buildWindWidget();
+  // азимут изменился (вручную/захват) → перерисовать (стрелка цели + часы);
+  // направление из Open-Meteo приходит как 'change' на скрытом поле.
   form.addEventListener('input', e => {
-    if (e.target && e.target.name === 'azimuth_deg') buildWindCompass();
+    if (e.target && e.target.name === 'azimuth_deg') buildWindWidget();
   });
-  windDirHidden.addEventListener('change', buildWindCompass);
+  windDirHidden.addEventListener('change', buildWindWidget);
 
   // === ПУЛЯ ===
   const secBullet = makeSection('bullet');
