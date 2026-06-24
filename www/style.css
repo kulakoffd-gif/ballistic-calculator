@@ -66,6 +66,22 @@ button { font-family: inherit; }
 /* ===== main ===== */
 main { padding: 8px 14px 100px; max-width: 760px; margin: 0 auto; }
 
+/* ===== нижняя навигация (как в AB Quantum) ===== */
+.bottomnav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottomnav a {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 4px 10px; text-decoration: none;
+  color: var(--muted); font-size: 11px; letter-spacing: 0.3px;
+}
+.bottomnav a .bn-ico { font-size: 20px; line-height: 1; filter: grayscale(0.4); opacity: 0.7; }
+.bottomnav a.active { color: var(--accent); }
+.bottomnav a.active .bn-ico { filter: none; opacity: 1; }
+
 /* ===== drawer ===== */
 .drawer {
   position: fixed; top: 0; right: 0; bottom: 0;
@@ -345,6 +361,29 @@ label { text-align: center; }
 }
 .profile-summary .kv { margin: 0; }
 .manual-group[hidden] { display: none; }
+
+/* плашка активного профиля в шапке HUD (как в AB) */
+.calc-profile-chip {
+  display: block; text-align: center; text-decoration: none;
+  padding: 8px 12px; margin-bottom: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid var(--accent); border-radius: 10px;
+  color: var(--accent); font-size: 13px; letter-spacing: 0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* строки выбора профиля на экране «Профили» */
+.profile-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.profile-row.active { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 8px; padding-left: 8px; padding-right: 8px; }
+.profile-pick {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+  background: transparent; border: 0; color: var(--text); text-align: left; cursor: pointer; padding: 4px 0;
+}
+.profile-pick .ttl { font-size: 15px; }
+.profile-pick .sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-dot { color: var(--accent); font-size: 16px; flex: 0 0 auto; }
 .calc-reticle[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .calc-hint {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
@@ -664,7 +703,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 
 @media print {
   body, html { background: #fff !important; color: #000 !important; }
-  .topbar, .drawer, .calc-hint, main > nav, .fab, .no-print { display: none !important; }
+  .topbar, .drawer, .bottomnav, .calc-hint, main > nav, .fab, .no-print { display: none !important; }
   main { padding: 0; max-width: none; }
   .range-card { box-shadow: none; padding: 0; }
 }

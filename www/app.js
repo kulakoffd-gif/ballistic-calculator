@@ -1930,6 +1930,11 @@ route('/calc', async () => {
   const weapons = await Store.getAll('weapons');
   const cartridges = await Store.getAll('cartridges');
   const state = JSON.parse(localStorage.getItem('calc:last') || '{}');
+  // Активный профиль (выбран на экране «Профили») подставляется в расчёт.
+  const _actW = localStorage.getItem('activeWeaponId');
+  const _actC = localStorage.getItem('activeCartridgeId');
+  if (_actW != null) state.weaponId = _actW;
+  if (_actC != null) state.cartridgeId = _actC;
 
   const form = el('form', { class: 'card' });
 
@@ -2047,23 +2052,17 @@ route('/calc', async () => {
   });
   windDirHidden.addEventListener('change', buildWindWidget);
 
-  // === ПРОФИЛЬ (оружие + патрон выбираются ОДИН раз; параметры берутся из них) ===
+  // === ПРОФИЛЬ (выбирается на отдельном экране «Профили», как в AB) ===
   const secBullet = makeSection('bullet');
-  secBullet.appendChild(selectInput('weaponId', 'Оружие (профиль)', state.weaponId,
-    [{ value: '', label: '— вручную —' }, ...weapons.map(w => ({ value: w.id, label: w.name }))]));
-  secBullet.appendChild(selectInput('cartridgeId', 'Патрон (профиль)', state.cartridgeId,
-    [{ value: '', label: '— вручную —' }, ...cartridges.map(c => ({ value: c.id, label: c.name }))]));
+  // активный профиль приходит из localStorage; на /calc — только скрытые поля + сводка
+  secBullet.appendChild(el('input', { type: 'hidden', name: 'weaponId', value: state.weaponId || '' }));
+  secBullet.appendChild(el('input', { type: 'hidden', name: 'cartridgeId', value: state.cartridgeId || '' }));
 
-  // сводка активного профиля (только чтение) + кнопки редактирования
   const profSummary = el('div', { class: 'profile-summary' });
   secBullet.appendChild(profSummary);
   const profEdit = el('div', { class: 'row', style: 'margin-top:6px' });
-  profEdit.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
-    onclick: () => { location.hash = form.weaponId.value ? '#/weapon/' + form.weaponId.value : '#/weapons'; } },
-    '✎ Оружие'));
-  profEdit.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
-    onclick: () => { location.hash = form.cartridgeId.value ? '#/cartridge/' + form.cartridgeId.value : '#/cartridges'; } },
-    '✎ Патрон'));
+  profEdit.appendChild(el('button', { type: 'button', class: 'btn', style: 'margin:0',
+    onclick: () => { location.hash = '#/profiles'; } }, '🎯 Сменить профиль'));
   secBullet.appendChild(profEdit);
 
   // Ручные поля — показываются ТОЛЬКО когда профиль не выбран (запасной режим).
@@ -2458,6 +2457,15 @@ route('/calc', async () => {
 
   // === HUD area (sticky сверху, всегда видна) ===
   const hudArea = el('div', { class: 'calc-hud-area' });
+  // плашка активного профиля сверху (как в AB) — тап ведёт на экран «Профили»
+  const profChip = el('a', { class: 'calc-profile-chip', href: '#/profiles' });
+  (function () {
+    const w = weapons.find(x => x.id === (form.weaponId && form.weaponId.value));
+    const c = cartridges.find(x => x.id === (form.cartridgeId && form.cartridgeId.value));
+    const nm = [w && w.name, c && c.name].filter(Boolean).join(' · ');
+    profChip.textContent = nm ? '🎯 ' + nm : '🎯 Профиль не выбран — выбрать';
+  })();
+  hudArea.appendChild(profChip);
   hudArea.appendChild(el('div', { id: 'result' }));
   view.appendChild(hudArea);
   view.appendChild(el('div', { class: 'calc-hint' }, '↓ ветер · скорость · атмосфера — меняй, пересчёт мгновенный'));
@@ -2511,6 +2519,67 @@ route('/calc-table', async () => {
 });
 
 // ============== WEAPONS / CARTRIDGES ==============
+// Экран «Профили» (как в AB): выбор активного оружия + патрона. Активные id
+// хранятся в localStorage и подставляются в /calc. Здесь же — создание/редактирование.
+route('/profiles', async () => {
+  setHeader({ title: 'Профили' });
+  const weapons = await Store.getAll('weapons');
+  const cartridges = await Store.getAll('cartridges');
+  let actW = localStorage.getItem('activeWeaponId') || '';
+  let actC = localStorage.getItem('activeCartridgeId') || '';
+
+  const activeCard = el('div', { class: 'card' });
+  view.appendChild(activeCard);
+  function renderActiveCard() {
+    activeCard.innerHTML = '';
+    activeCard.appendChild(el('h2', {}, '🎯 Активный профиль'));
+    const w = weapons.find(x => x.id === actW);
+    const c = cartridges.find(x => x.id === actC);
+    if (!w && !c) {
+      activeCard.appendChild(el('div', { class: 'muted' }, 'Не выбран. Отметь оружие и патрон ниже — они подставятся в расчёт.'));
+      return;
+    }
+    const kv = el('div', { class: 'kv', style: 'font-size:14px' });
+    const push = (k, v) => { kv.appendChild(el('div', { class: 'k' }, k)); kv.appendChild(el('div', { class: 'v' }, v)); };
+    if (w) { push('Оружие', w.name || 'Без названия'); if (w.sightHeight_mm != null) push('Высота прицела', fmt(w.sightHeight_mm, 0) + ' мм'); if (w.zeroDistance != null) push('Пристрелка', fmt(w.zeroDistance, 0) + ' м'); if (w.twist_in != null) push('Твист', fmt(w.twist_in, 1) + '″ ' + (w.twistRight !== false ? 'R' : 'L')); }
+    if (c) { push('Патрон', c.name || 'Без названия'); push('BC · модель', `${fmt(effectiveBC(c), 3)} ${effectiveDragModel(c)}`); if (c.bulletMass_gr) push('Масса', fmt(c.bulletMass_gr, 0) + ' gr'); if (c.v0) push('V₀', fmt(c.v0, 0) + ' м/с'); }
+    activeCard.appendChild(kv);
+    activeCard.appendChild(el('a', { class: 'btn good', href: '#/calc' }, '→ К расчёту'));
+  }
+  renderActiveCard();
+
+  function listSection(title, items, kind, getActive, setActive, subFn) {
+    const card = el('div', { class: 'card' });
+    card.appendChild(el('h2', {}, title));
+    if (!items.length) card.appendChild(el('div', { class: 'muted', style: 'margin-bottom:8px' }, 'Пусто — создай первый.'));
+    for (const it of items) {
+      const row = el('div', { class: 'profile-row' + (it.id === getActive() ? ' active' : '') });
+      const pick = el('button', { type: 'button', class: 'profile-pick', onclick: () => {
+        setActive(it.id);
+        [...card.querySelectorAll('.profile-row')].forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        renderActiveCard();
+        toast('Активно: ' + (it.name || ''));
+      } },
+        el('span', { class: 'profile-dot' }, it.id === getActive() ? '●' : '○'),
+        el('span', { style: 'min-width:0' },
+          el('div', { class: 'ttl' }, it.name || 'Без названия'),
+          el('div', { class: 'sub' }, subFn(it))));
+      row.appendChild(pick);
+      row.appendChild(el('a', { class: 'ico', href: `#/${kind}/${it.id}`, style: 'flex:0 0 auto' }, '✎'));
+      card.appendChild(row);
+    }
+    card.appendChild(el('a', { class: 'btn outline', href: `#/${kind}/new` }, '+ Создать'));
+    view.appendChild(card);
+  }
+  listSection('Оружие', weapons, 'weapon',
+    () => actW, id => { actW = id; localStorage.setItem('activeWeaponId', id); },
+    w => [w.caliber, 'h.прицела ' + (w.sightHeight_mm || 50) + ' мм', 'ноль ' + (w.zeroDistance || 100) + ' м'].filter(Boolean).join(' · '));
+  listSection('Патроны', cartridges, 'cartridge',
+    () => actC, id => { actC = id; localStorage.setItem('activeCartridgeId', id); },
+    c => [`BC ${fmt(effectiveBC(c), 3)} ${effectiveDragModel(c)}`, c.bulletMass_gr ? c.bulletMass_gr + ' gr' : '', c.v0 ? c.v0 + ' м/с' : ''].filter(Boolean).join(' · '));
+});
+
 route('/weapons', async () => {
   setHeader({ title: 'Оружие' });
   const items = await Store.getAll('weapons');

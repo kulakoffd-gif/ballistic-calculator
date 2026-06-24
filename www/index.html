@@ -29,6 +29,7 @@
 
 <nav id="drawer" class="drawer" hidden>
   <a href="#/">Главная</a>
+  <a href="#/profiles">Профили (оружие + патрон)</a>
   <a href="#/ranges">Полигоны</a>
   <a href="#/journal">Журнал (поиск)</a>
   <a href="#/calc">Быстрый калькулятор</a>
@@ -51,6 +52,13 @@
 
 <main id="view"></main>
 
+<nav id="bottomnav" class="bottomnav">
+  <a href="#/calc" data-route="calc"><span class="bn-ico">🎯</span><span>Стрельба</span></a>
+  <a href="#/profiles" data-route="profiles"><span class="bn-ico">📇</span><span>Профили</span></a>
+  <a href="#/ranges" data-route="ranges"><span class="bn-ico">🗺</span><span>Полигоны</span></a>
+  <a href="#/settings" data-route="settings"><span class="bn-ico">⚙</span><span>Настройки</span></a>
+</nav>
+
 <script src="ballistics.js"></script>
 <script src="storage.js"></script>
 <script src="devices.js"></script>
@@ -70,6 +78,14 @@ if ('serviceWorker' in navigator) {
       .then(() => { if (had) location.reload(); }); // один раз перезагрузимся на свежак
   }).catch(() => {});
 }
+// подсветка активного пункта нижней навигации
+function hlBottomNav() {
+  const seg = (location.hash.replace(/^#\//, '').split('/')[0]) || '';
+  document.querySelectorAll('#bottomnav a').forEach(a =>
+    a.classList.toggle('active', a.dataset.route === seg));
+}
+window.addEventListener('hashchange', hlBottomNav);
+hlBottomNav();
 </script>
 </body>
 </html>
