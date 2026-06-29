@@ -340,8 +340,26 @@ label { text-align: center; }
 /* компас ветра рядом с полем скорости */
 .wind-row { display: flex; gap: 12px; align-items: center; }
 .wind-col { flex: 1; min-width: 0; }
-.wind-compass { flex: 0 0 140px; display: flex; justify-content: center; }
+.wind-compass { flex: 0 0 140px; display: flex; justify-content: center; position: relative; }
 .wind-compass .compass { width: 140px; max-width: 140px; }
+.wind-expand {
+  position: absolute; top: 0; right: 0; width: 30px; height: 30px;
+  border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--accent); font-size: 15px; cursor: pointer; z-index: 2; line-height: 1;
+}
+/* полноэкранный циферблат ветра */
+.wind-modal {
+  position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.88);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.wind-modal-box {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+  padding: 16px; width: 100%; max-width: 440px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.wind-modal-title { text-align: center; color: var(--accent); letter-spacing: 1px; font-size: 13px; text-transform: uppercase; }
+.wind-big { display: flex; justify-content: center; }
+.wind-big .compass { width: min(82vw, 380px); max-width: 380px; }
 .wind-readout {
   font-size: 10px; color: var(--muted); text-align: center;
   margin-top: 6px; line-height: 1.3;

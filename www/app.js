@@ -2005,6 +2005,36 @@ route('/calc', async () => {
     // обновить подпись без повторного recalc
     const windFrom = ((windTo + 180) % 360 + 360) % 360;
     windReadout.textContent = `откуда ${Math.round(windFrom)}° · ${windToClock(windTo, az)} от цели`;
+    // кнопка «развернуть на весь экран»
+    widgetWrap.appendChild(el('button', { type: 'button', class: 'wind-expand',
+      title: 'Развернуть', onclick: openWindBig }, '⛶'));
+  }
+  // Полноэкранный циферблат для удобного перетаскивания; OK возвращает обратно.
+  function openWindBig() {
+    const az = parseFloat(form.azimuth_deg.value) || 0;
+    const windTo = parseFloat(windDirHidden.value) || 0;
+    const overlay = el('div', { class: 'wind-modal' });
+    const box = el('div', { class: 'wind-modal-box' });
+    box.appendChild(el('div', { class: 'wind-modal-title' },
+      windMode === 'clock' ? '🕐 Ветер — откуда дует' : '🧭 Ветер — откуда дует'));
+    const big = el('div', { class: 'wind-big' });
+    if (windMode === 'clock') {
+      big.appendChild(createWindClock({ value: windTo, shotAz: az, onChange: wt => windDirHidden._commit(wt) }).svg);
+    } else {
+      const wf = ((windTo + 180) % 360 + 360) % 360;
+      big.appendChild(createCompass({ value: wf, fireDir: az, subLabel: 'ОТКУДА', onChange: vFrom => windDirHidden._commit(vFrom + 180) }).svg);
+    }
+    box.appendChild(big);
+    const live = el('div', { class: 'wind-readout', style: 'font-size:13px' });
+    const syncLive = () => { const wt = parseFloat(windDirHidden.value) || 0; const wf = ((wt + 180) % 360 + 360) % 360; live.textContent = `откуда ${Math.round(wf)}° · ${windToClock(wt, az)} от цели`; };
+    syncLive();
+    windDirHidden.addEventListener('input', syncLive);
+    box.appendChild(live);
+    const close = () => { windDirHidden.removeEventListener('input', syncLive); if (overlay.parentNode) overlay.parentNode.removeChild(overlay); buildWindWidget(); };
+    box.appendChild(el('button', { type: 'button', class: 'btn', onclick: close }, 'OK'));
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
   }
   for (const [id, label] of [['compass', '🧭 Компас'], ['clock', '🕐 Часы']]) {
     modeChips.appendChild(el('div', { class: 'chip' + (windMode === id ? ' active' : ''),
