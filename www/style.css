@@ -318,6 +318,12 @@ label { text-align: center; }
 .hud-detail-cell { flex: 1; text-align: center; min-width: 0; }
 .hud-detail-v { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .hud-detail-k { font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--muted); }
+/* переключатель видов HUD (Решение/Сетка/WEZ) */
+.hud-tabs { display: flex; gap: 4px; margin: 6px 0 10px; }
+.hud-tabs .chip { flex: 1; text-align: center; padding: 7px 6px; font-size: 12px; }
+.hud-prob { text-align: center; font-size: 13px; font-weight: 600; margin: 6px 0 2px; }
+.hud-view { padding: 4px 0; }
+.wez-prob { text-align: center; font-size: clamp(40px, 16vw, 64px); font-weight: 700; line-height: 1; }
 .calc-ctrl-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 10px 0 12px; }
 .calc-ctrl-tabs .chip {
   flex: 1; min-width: 0; text-align: center; padding: 10px 6px;
