@@ -2299,7 +2299,6 @@ route('/calc', async () => {
     const solCard = el('div', { class: 'solution-card' });
     const distLabel = el('div', { class: 'dist-pick' }, '');
     const mainGrid = el('div', { class: 'main-values' });
-    const probLine = el('div', { class: 'hud-prob' });
     const stepperRow = el('div', { class: 'range-stepper' });
     const spotBtn = el('button', { type: 'button', class: 'spot-btn',
       onclick: () => {
@@ -2307,77 +2306,35 @@ route('/calc', async () => {
         if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist);
       } }, '🎯 Промах — пересчитать поправку');
     const detailStrip = el('div', { class: 'hud-detail' });
-    // панели видов «Сетка» и «WEZ» (по умолчанию скрыты)
+    // панель вида «Сетка» (по умолчанию скрыта)
     const reticlePanel = el('div', { class: 'hud-view', hidden: true });
-    const wezPanel = el('div', { class: 'hud-view', hidden: true });
-    // переключатель видов (как в AB: Решение / Сетка / WEZ)
+    // переключатель видов (как в AB: Решение / Сетка)
     const hudTabs = el('div', { class: 'hud-tabs' });
     let activeHudView = localStorage.getItem('calc:hudView') || 'solution';
+    if (activeHudView === 'wez') activeHudView = 'solution';
     function showHudView(id) {
       activeHudView = id; localStorage.setItem('calc:hudView', id);
       const sol = id === 'solution';
-      mainGrid.hidden = !sol; detailStrip.hidden = !sol; spotBtn.hidden = !sol; probLine.hidden = !sol;
+      mainGrid.hidden = !sol; detailStrip.hidden = !sol; spotBtn.hidden = !sol;
       reticlePanel.hidden = id !== 'reticle';
-      wezPanel.hidden = id !== 'wez';
       [...hudTabs.children].forEach(ch => ch.classList.toggle('active', ch.dataset.v === id));
       if (id === 'reticle') {
         reticlePanel.innerHTML = '';
-        reticlePanel.appendChild(reticle ? renderReticleViewer(reticle, res.rows)
-          : el('div', { class: 'muted center', style: 'padding:18px' }, 'У активного оружия нет сетки. Привяжи сетку в профиле оружия.'));
+        reticlePanel.appendChild(renderReticleView(reticle, res.rows, bigDist));
       }
-      if (id === 'wez') renderWez();
     }
-    for (const [v, label] of [['solution', 'Решение'], ['reticle', 'Сетка'], ['wez', 'WEZ']]) {
+    for (const [v, label] of [['solution', 'Решение'], ['reticle', 'Сетка']]) {
       hudTabs.appendChild(el('div', { class: 'chip' + (activeHudView === v ? ' active' : ''), 'data-v': v,
         onclick: () => showHudView(v) }, label));
     }
     solCard.appendChild(distLabel);
     solCard.appendChild(hudTabs);
     solCard.appendChild(mainGrid);
-    solCard.appendChild(probLine);
     solCard.appendChild(reticlePanel);
-    solCard.appendChild(wezPanel);
     solCard.appendChild(stepperRow);
     solCard.appendChild(detailStrip);
     solCard.appendChild(spotBtn);
     out.appendChild(solCard);
-
-    // — Вероятность попадания (WEZ): простая модель Рэлея по кучности и размеру цели —
-    let wezTargetCm = parseFloat(localStorage.getItem('wez:targetCm')) || 60;
-    let wezSigmaMil = parseFloat(localStorage.getItem('wez:sigmaMil')) || 0.3;
-    function hitProb(dist) {
-      const rMil = ((wezTargetCm / 100) / 2) / dist * 1000; // радиус цели, mil на дистанции
-      const s = Math.max(wezSigmaMil, 0.001);
-      return 1 - Math.exp(-(rMil * rMil) / (2 * s * s));
-    }
-    function renderWez() {
-      wezPanel.innerHTML = '';
-      const p = hitProb(bigDist);
-      wezPanel.appendChild(el('div', { class: 'wez-prob',
-        style: 'color:' + (p > 0.7 ? 'var(--good)' : p > 0.4 ? 'var(--accent)' : 'var(--bad)') },
-        Math.round(p * 100) + '%'));
-      wezPanel.appendChild(el('div', { class: 'muted center', style: 'font-size:12px;margin-bottom:8px' }, `вероятность попадания · ${bigDist} м`));
-      const r1 = el('div', { class: 'row' },
-        numInput('wezTargetCm', 'Цель Ø, см', wezTargetCm, { step: '1' }),
-        numInput('wezSigmaMil', 'Кучность σ, mil', wezSigmaMil, { step: '0.05' }));
-      r1.querySelector('[name=wezTargetCm]').addEventListener('input', e => {
-        wezTargetCm = parseFloat(e.target.value) || 0; localStorage.setItem('wez:targetCm', wezTargetCm); renderWez(); renderBig();
-      });
-      r1.querySelector('[name=wezSigmaMil]').addEventListener('input', e => {
-        wezSigmaMil = parseFloat(e.target.value) || 0.1; localStorage.setItem('wez:sigmaMil', wezSigmaMil); renderWez(); renderBig();
-      });
-      wezPanel.appendChild(r1);
-      const cnv = el('canvas', { width: 240, height: 240, style: 'display:block;margin:8px auto 0;background:#0b0f14;border:1px solid var(--border);border-radius:10px' });
-      wezPanel.appendChild(cnv);
-      const ctx = cnv.getContext('2d'); const cx = 120, cy = 120;
-      const rMil = ((wezTargetCm / 100) / 2) / bigDist * 1000;
-      const maxMil = Math.max(rMil, wezSigmaMil * 3) * 1.2;
-      const k = 100 / Math.max(maxMil, 0.01);
-      ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, rMil * k, 0, 2 * Math.PI); ctx.stroke();
-      ctx.strokeStyle = '#7a8699'; ctx.lineWidth = 1;
-      for (const m of [1, 2]) { ctx.beginPath(); ctx.arc(cx, cy, wezSigmaMil * m * k, 0, 2 * Math.PI); ctx.stroke(); }
-      ctx.fillStyle = '#ff8b3d'; ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, 2 * Math.PI); ctx.fill();
-    }
 
     // живой single-distance solve (быстрее чем full table)
     function solveAt(dist, useW2 = false) {
@@ -2455,10 +2412,11 @@ route('/calc', async () => {
           el('div', { class: 'hud-detail-v' }, v),
           el('div', { class: 'hud-detail-k' }, k)));
       }
-      // вероятность попадания (как в AB)
-      const pp = Math.round(hitProb(bigDist) * 100);
-      probLine.textContent = `Вероятность ≈ ${pp}% · цель ${wezTargetCm} см · σ ${wezSigmaMil} mil`;
-      probLine.style.color = pp > 70 ? 'var(--good)' : pp > 40 ? 'var(--accent)' : 'var(--bad)';
+      // если открыт вид «Сетка» — перерисовать с новой дистанцией
+      if (activeHudView === 'reticle' && !reticlePanel.hidden) {
+        reticlePanel.innerHTML = '';
+        reticlePanel.appendChild(renderReticleView(reticle, res.rows, bigDist));
+      }
     }
 
     // — Дистанция: тап → очищается + цифровая клавиатура. Отмена → старое значение —
@@ -3406,6 +3364,88 @@ function reticleScale(cal) {
 }
 
 // --- хелпер: отрисовать сетку с метками целей + subtension-режим + pinch-zoom ---
+// ===== Встроенная библиотека сеток (рисуются программно, без фото) =====
+// Стандартные универсальные сетки (не привязаны к брендам). Точки решения:
+// вниз = просадка (холд-овер), вправо = снос. Оранжевая = текущая дистанция.
+const BUILTIN_RETICLES = [
+  { id: 'mrad-grid', name: 'МРАД сетка', unit: 'mil', step: 1, big: 5 },
+  { id: 'mil-dot',   name: 'Mil-Dot',    unit: 'mil', step: 1, big: 5, dots: true },
+  { id: 'moa-grid',  name: 'MOA сетка',  unit: 'moa', step: 2, big: 10 },
+];
+function drawReticleSVG(preset, rows, bigDist, scaleMul = 1) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const moa = preset.unit === 'moa';
+  const valOf = (r) => moa ? { v: r.drop_moa, h: r.drift_moa } : { v: r.drop_mil, h: r.drift_mil };
+  let maxU = moa ? 20 : 7;
+  rows.forEach(r => { const { v, h } = valOf(r); maxU = Math.max(maxU, Math.abs(v || 0), Math.abs(h || 0)); });
+  maxU = Math.ceil(maxU / preset.step) * preset.step;
+  const R = 150;
+  const pxPerU = (R - 14) / maxU * scaleMul;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
+  svg.setAttribute('class', 'reticle-svg');
+  const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
+  const line = (x1, y1, x2, y2, stroke, w) => mk('line', { x1, y1, x2, y2, stroke, 'stroke-width': w });
+  const dotc = (x, y, r, fill) => mk('circle', { cx: x, cy: y, r, fill });
+  const txt = (x, y, s, fill, size) => { const t = mk('text', { x, y, fill, 'font-size': size || 7, 'text-anchor': 'middle' }); t.textContent = s; };
+  // оси
+  line(-R + 8, 0, R - 8, 0, '#3a4658', 1);
+  line(0, -R + 8, 0, R - 8, '#3a4658', 1);
+  for (let u = preset.step; u <= maxU; u += preset.step) {
+    const p = u * pxPerU, isBig = (u % preset.big) === 0, tick = isBig ? 7 : 4;
+    if (preset.dots) {
+      for (const [x, y] of [[p, 0], [-p, 0], [0, p], [0, -p]]) dotc(x, y, 1.6, '#8a96a8');
+    } else {
+      line(p, -tick, p, tick, '#8a96a8', isBig ? 1.2 : 0.7);
+      line(-p, -tick, -p, tick, '#8a96a8', isBig ? 1.2 : 0.7);
+      line(-tick, p, tick, p, '#8a96a8', isBig ? 1.2 : 0.7);
+      line(-tick, -p, tick, -p, '#8a96a8', isBig ? 1.2 : 0.7);
+    }
+    if (isBig) { txt(11, p + 3, u, '#6b7688', 7); txt(p, -10, u, '#6b7688', 7); }
+  }
+  dotc(0, 0, 1.6, '#ff8b3d');
+  const colors = ['#4ade80', '#ffb072', '#67e8f9', '#f87171', '#a78bfa', '#fde047', '#fb923c'];
+  rows.forEach((r, i) => {
+    const { v, h } = valOf(r); if (v == null) return;
+    const x = (h || 0) * pxPerU, y = (v || 0) * pxPerU;
+    if (Math.abs(x) > R - 4 || Math.abs(y) > R - 4) return;
+    const cur = r.range === bigDist, col = cur ? '#ff8b3d' : colors[i % colors.length];
+    mk('circle', { cx: x, cy: y, r: cur ? 5 : 3, fill: 'none', stroke: col, 'stroke-width': cur ? 2 : 1.3 });
+    dotc(x, y, 1.3, col);
+    txt(x + (cur ? 12 : 10), y + 3, r.range, col, cur ? 8.5 : 7.5);
+  });
+  return svg;
+}
+// Вид «Сетка» в HUD: фото-сетка оружия (если есть+калибрована) ИЛИ встроенная библиотека.
+function renderReticleView(reticle, rows, bigDist) {
+  if (reticle && reticle.imageDataUrl && reticleScale(reticle.cal)) {
+    return renderReticleViewer(reticle, rows);
+  }
+  const wrap = el('div', { class: 'card', style: 'padding:10px' });
+  let typeId = localStorage.getItem('calc:reticleType') || 'mrad-grid';
+  if (!BUILTIN_RETICLES.some(r => r.id === typeId)) typeId = 'mrad-grid';
+  let scaleMul = parseFloat(localStorage.getItem('calc:reticleZoom')) || 1;
+  const chips = el('div', { class: 'chips', style: 'margin-bottom:8px' });
+  const holder = el('div', { class: 'reticle-builtin' });
+  const redraw = () => { holder.innerHTML = ''; holder.appendChild(drawReticleSVG(BUILTIN_RETICLES.find(r => r.id === typeId), rows, bigDist, scaleMul)); };
+  for (const p of BUILTIN_RETICLES) {
+    chips.appendChild(el('div', { class: 'chip' + (p.id === typeId ? ' active' : ''),
+      onclick: (e) => { typeId = p.id; localStorage.setItem('calc:reticleType', p.id); [...chips.children].forEach(c => c.classList.toggle('active', c === e.currentTarget)); redraw(); } }, p.name));
+  }
+  wrap.appendChild(chips);
+  const zoomRow = el('div', { class: 'reticle-toolbar' });
+  const setZ = (z) => { scaleMul = Math.max(0.5, Math.min(4, z)); localStorage.setItem('calc:reticleZoom', scaleMul); redraw(); };
+  zoomRow.appendChild(el('button', { type: 'button', class: 'btn-mini', onclick: () => setZ(scaleMul - 0.25) }, '−'));
+  zoomRow.appendChild(el('button', { type: 'button', class: 'btn-mini', onclick: () => setZ(1) }, '1:1'));
+  zoomRow.appendChild(el('button', { type: 'button', class: 'btn-mini', onclick: () => setZ(scaleMul + 0.25) }, '+'));
+  wrap.appendChild(zoomRow);
+  wrap.appendChild(holder);
+  wrap.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:6px' },
+    'Точки решения: ↓ просадка, → снос. Оранжевая = текущая дистанция. Для реальной сетки прицела — загрузи фото в «Сетки прицелов» и привяжи к оружию.'));
+  redraw();
+  return wrap;
+}
+
 function renderReticleViewer(reticle, rows) {
   const wrap = el('div', { class: 'card' });
   if (!reticle || !reticle.imageDataUrl) {

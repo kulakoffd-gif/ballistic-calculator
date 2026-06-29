@@ -366,6 +366,13 @@ label { text-align: center; }
 .wind-modal-title { text-align: center; color: var(--accent); letter-spacing: 1px; font-size: 13px; text-transform: uppercase; }
 .wind-big { display: flex; justify-content: center; }
 .wind-big .compass { width: min(82vw, 380px); max-width: 380px; }
+/* встроенная (программная) сетка прицела */
+.reticle-builtin { display: flex; justify-content: center; }
+.reticle-svg {
+  width: min(86vw, 380px); max-width: 380px; aspect-ratio: 1; display: block;
+  background: #0b0f14; border: 1px solid var(--border); border-radius: 10px;
+  font-family: 'Chakra Petch', monospace;
+}
 .wind-readout {
   font-size: 10px; color: var(--muted); text-align: center;
   margin-top: 6px; line-height: 1.3;
