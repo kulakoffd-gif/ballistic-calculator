@@ -1972,144 +1972,184 @@ route('/calc', async () => {
     return el('div', { class: 'form-section', 'data-tab': tabId });
   }
 
-  // === ЗАКРЕПЛЁННЫЙ блок: ветер (ОТКУДА дует) · скорость · азимут — всегда видим ===
+  // === ЗАКРЕПЛЁННЫЙ блок: ветер W1/W2 (откуда дует) · скорость · азимут ===
   const secQuick = el('div', { class: 'form-pinned' });
   secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер (откуда дует) · скорость · азимут'));
 
-  // Источник правды — абсолютное направление «куда дует» (для solver через
-  // solverWindAngle). В интерфейсе показываем «ОТКУДА» = +180° (межд. стандарт).
-  const windDirHidden = el('input', { type: 'hidden', name: 'windDir',
-    value: state.windDir ?? state.windAngle_deg ?? 90 });
-  secQuick.appendChild(windDirHidden);
+  // Скрытые поля-источники правды: направление «куда дует» (TO, абсолютное) и скорость
+  // для двух ветров. В solver уходит относительный угол через solverWindAngle.
+  const windDirH  = el('input', { type: 'hidden', name: 'windDir',  value: state.windDir  ?? state.windAngle_deg  ?? 90 });
+  const windDir2H = el('input', { type: 'hidden', name: 'windDir2', value: state.windDir2 ?? state.windAngle_deg2 ?? 90 });
+  const windSpeedH  = el('input', { type: 'number', name: 'windSpeed',  value: state.windSpeed  ?? 0, hidden: true });
+  const windSpeed2H = el('input', { type: 'number', name: 'windSpeed2', value: state.windSpeed2 ?? 0, hidden: true });
+  secQuick.append(windDirH, windDir2H, windSpeedH, windSpeed2H);
 
-  // переключатель способа ввода: компас (азимут) / часы (от цели)
-  let windMode = localStorage.getItem('calcWindMode') || 'compass';
-  const modeChips = el('div', { class: 'chips', style: 'margin-bottom:8px' });
+  let activeWind = (parseInt(localStorage.getItem('calcActiveWind')) === 2) ? 2 : 1;
+  let windMode   = localStorage.getItem('calcWindMode') || 'compass';   // циферблат: компас/часы
+  let numDirMode = localStorage.getItem('calcWindNumMode') || 'az';     // ручной ввод: az|clock
+  const dirField = n => n === 2 ? windDir2H : windDirH;
+  const spdField = n => n === 2 ? windSpeed2H : windSpeedH;
+  const azNow = () => parseFloat(form.azimuth_deg.value) || 0;
+
+  const wwChips    = el('div', { class: 'chips', style: 'margin-bottom:6px' });   // W1/W2
+  const modeChips  = el('div', { class: 'chips', style: 'margin-bottom:8px' });   // компас/часы
   const widgetWrap = el('div', { class: 'wind-compass' });
+  const speedInp   = el('input', { type: 'number', inputmode: 'decimal', step: '0.1', class: 'wind-num' });
+  const dirInp     = el('input', { type: 'number', inputmode: 'decimal', step: '1', class: 'wind-num' });
+  const dirFlag    = el('button', { type: 'button', class: 'wind-flag' });
   const windReadout = el('div', { class: 'wind-readout' });
 
-  windDirHidden._commit = (windTo) => {
-    const az = parseFloat(form.azimuth_deg.value) || 0;
-    windTo = ((windTo % 360) + 360) % 360;
-    windDirHidden.value = Math.round(windTo);
-    const windFrom = ((windTo + 180) % 360 + 360) % 360;
-    windReadout.textContent = `откуда ${Math.round(windFrom)}° · ${windToClock(windTo, az)} от цели`;
-    windDirHidden.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-
-  function buildWindWidget() {
-    widgetWrap.innerHTML = '';
-    const az = parseFloat(form.azimuth_deg.value) || 0;
-    const windTo = parseFloat(windDirHidden.value) || 0;
-    if (windMode === 'clock') {
-      const wc = createWindClock({ value: windTo, shotAz: az,
-        onChange: (wt) => windDirHidden._commit(wt) });
-      widgetWrap.appendChild(wc.svg);
-    } else {
-      const windFrom = ((windTo + 180) % 360 + 360) % 360;
-      const cmp = createCompass({ value: windFrom, fireDir: az, subLabel: 'ОТКУДА',
-        onChange: (vFrom) => windDirHidden._commit(vFrom + 180) });
-      widgetWrap.appendChild(cmp.svg);
-    }
-    // обновить подпись без повторного recalc
-    const windFrom = ((windTo + 180) % 360 + 360) % 360;
-    windReadout.textContent = `откуда ${Math.round(windFrom)}° · ${windToClock(windTo, az)} от цели`;
-    // кнопка «развернуть на весь экран»
-    widgetWrap.appendChild(el('button', { type: 'button', class: 'wind-expand',
-      title: 'Развернуть', onclick: openWindBig }, '⛶'));
+  // числовой ввод направления → TO для ветра n (по numDirMode)
+  function dirToWindTo(val) {
+    const v = parseFloat(val) || 0;
+    return numDirMode === 'clock'
+      ? ((azNow() + v * 30 + 180) % 360 + 360) % 360   // часы (откуда, от цели)
+      : ((v + 180) % 360 + 360) % 360;                 // азимут «откуда» (абсолютный)
   }
-  // Полноэкранный циферблат для удобного перетаскивания; OK возвращает обратно.
+  // TO → число для поля (по numDirMode)
+  function windToToNum(to) {
+    if (numDirMode === 'clock') {
+      let h = (((to - azNow() - 180) / 30) % 12 + 12) % 12; if (h < 0.05) h = 12;
+      return Math.round(h * 2) / 2;
+    }
+    return Math.round(((to + 180) % 360 + 360) % 360);
+  }
+  function updateReadout() {
+    const to = parseFloat(dirField(activeWind).value) || 0;
+    const from = ((to + 180) % 360 + 360) % 360;
+    windReadout.textContent = `W${activeWind}: откуда ${Math.round(from)}° · ${windToClock(to, azNow())} от цели`;
+  }
+  function buildDial() {
+    widgetWrap.innerHTML = '';
+    const az = azNow(), to = parseFloat(dirField(activeWind).value) || 0;
+    if (windMode === 'clock') {
+      widgetWrap.appendChild(createWindClock({ value: to, shotAz: az, onChange: (wt) => setActiveTo(wt, false) }).svg);
+    } else {
+      const from = ((to + 180) % 360 + 360) % 360;
+      widgetWrap.appendChild(createCompass({ value: from, fireDir: az, subLabel: 'ОТКУДА W' + activeWind, onChange: (vf) => setActiveTo(vf + 180, false) }).svg);
+    }
+    widgetWrap.appendChild(el('button', { type: 'button', class: 'wind-expand', title: 'Развернуть', onclick: openWindBig }, '⛶'));
+  }
+  // записать направление активного ветра (TO), синхронизировать число/подпись/recalc
+  function setActiveTo(to, rebuildDial) {
+    to = ((to % 360) + 360) % 360;
+    dirField(activeWind).value = Math.round(to);
+    dirField(activeWind).dispatchEvent(new Event('input', { bubbles: true }));
+    dirInp.value = windToToNum(to);
+    if (rebuildDial) buildDial();
+    updateReadout();
+  }
+  function bindActive() {
+    [...wwChips.children].forEach(ch => ch.classList.toggle('active', +ch.dataset.w === activeWind));
+    speedInp.value = spdField(activeWind).value || 0;
+    dirInp.value = windToToNum(parseFloat(dirField(activeWind).value) || 0);
+    buildDial();
+    updateReadout();
+  }
   function openWindBig() {
-    const az = parseFloat(form.azimuth_deg.value) || 0;
-    const windTo = parseFloat(windDirHidden.value) || 0;
     const overlay = el('div', { class: 'wind-modal' });
     const box = el('div', { class: 'wind-modal-box' });
-    box.appendChild(el('div', { class: 'wind-modal-title' },
-      windMode === 'clock' ? '🕐 Ветер — откуда дует' : '🧭 Ветер — откуда дует'));
+    box.appendChild(el('div', { class: 'wind-modal-title' }, `Ветер W${activeWind} — откуда дует`));
     const big = el('div', { class: 'wind-big' });
+    const az = azNow(), to = parseFloat(dirField(activeWind).value) || 0;
     if (windMode === 'clock') {
-      big.appendChild(createWindClock({ value: windTo, shotAz: az, onChange: wt => windDirHidden._commit(wt) }).svg);
+      big.appendChild(createWindClock({ value: to, shotAz: az, onChange: (wt) => setActiveTo(wt, false) }).svg);
     } else {
-      const wf = ((windTo + 180) % 360 + 360) % 360;
-      big.appendChild(createCompass({ value: wf, fireDir: az, subLabel: 'ОТКУДА', onChange: vFrom => windDirHidden._commit(vFrom + 180) }).svg);
+      const from = ((to + 180) % 360 + 360) % 360;
+      big.appendChild(createCompass({ value: from, fireDir: az, subLabel: 'ОТКУДА', onChange: (vf) => setActiveTo(vf + 180, false) }).svg);
     }
     box.appendChild(big);
     const live = el('div', { class: 'wind-readout', style: 'font-size:13px' });
-    const syncLive = () => { const wt = parseFloat(windDirHidden.value) || 0; const wf = ((wt + 180) % 360 + 360) % 360; live.textContent = `откуда ${Math.round(wf)}° · ${windToClock(wt, az)} от цели`; };
-    syncLive();
-    windDirHidden.addEventListener('input', syncLive);
+    const sync = () => { const t = parseFloat(dirField(activeWind).value) || 0; const f = ((t + 180) % 360 + 360) % 360; live.textContent = `откуда ${Math.round(f)}° · ${windToClock(t, az)} от цели`; };
+    sync();
+    dirField(activeWind).addEventListener('input', sync);
     box.appendChild(live);
-    const close = () => { windDirHidden.removeEventListener('input', syncLive); if (overlay.parentNode) overlay.parentNode.removeChild(overlay); buildWindWidget(); };
+    const close = () => { dirField(activeWind).removeEventListener('input', sync); if (overlay.parentNode) overlay.parentNode.removeChild(overlay); bindActive(); };
     box.appendChild(el('button', { type: 'button', class: 'btn', onclick: close }, 'OK'));
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   }
+
+  // W1 / W2 селектор (куда идёт циферблат и захват компасом)
+  for (const n of [1, 2]) {
+    wwChips.appendChild(el('div', { class: 'chip', 'data-w': n,
+      onclick: () => { activeWind = n; localStorage.setItem('calcActiveWind', n); bindActive(); } }, 'W' + n));
+  }
+  secQuick.appendChild(wwChips);
   for (const [id, label] of [['compass', '🧭 Компас'], ['clock', '🕐 Часы']]) {
     modeChips.appendChild(el('div', { class: 'chip' + (windMode === id ? ' active' : ''),
-      onclick: (e) => {
-        windMode = id; localStorage.setItem('calcWindMode', id);
-        [...modeChips.children].forEach(ch => ch.classList.toggle('active', ch === e.currentTarget));
-        buildWindWidget();
-      } }, label));
+      onclick: (e) => { windMode = id; localStorage.setItem('calcWindMode', id); [...modeChips.children].forEach(ch => ch.classList.toggle('active', ch === e.currentTarget)); buildDial(); } }, label));
   }
   secQuick.appendChild(modeChips);
 
+  // правая колонка: скорость (с источниками) + направление (число + флажок °/часы)
   const windRow = el('div', { class: 'wind-row' });
-  const windCol = el('div', { class: 'wind-col' });
-  windCol.appendChild(numInputWithSources('windSpeed', 'Ветер, м/с', state.windSpeed ?? 0,
-    [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)]));
-  windCol.appendChild(windReadout);
-  windRow.appendChild(windCol);
+  const rightCol = el('div', { class: 'wind-col' });
+  rightCol.appendChild(el('label', { style: 'font-size:11px' }, 'Скорость, м/с'));
+  const spdRow = el('div', { class: 'input-row' });
+  spdRow.appendChild(speedInp);
+  const spdSrc = el('div', { class: 'sources' });
+  spdSrc.appendChild(el('button', { type: 'button', class: 'src-meteo', title: 'Метеостанция', onclick: async (ev) => {
+    const b = ev.currentTarget; b.disabled = true;
+    try { const w = await getWeatherCached(); speedInp.value = Number(w.windSpeed).toFixed(1); applySpeed(); toast('Метеостанция: ' + speedInp.value + ' м/с'); }
+    catch (e) { toast('Метеостанция: ' + e.message); } finally { b.disabled = false; }
+  } }, '📡'));
+  spdSrc.appendChild(el('button', { type: 'button', class: 'src-kestrel', title: 'Kestrel', onclick: () => {
+    const d = kestrelLast(); if (!d || d.windSpeed == null) { toast('Kestrel: нет данных'); return; }
+    speedInp.value = Number(d.windSpeed).toFixed(1); applySpeed(); toast('Kestrel: ' + speedInp.value + ' м/с');
+  } }, kestrelBird()));
+  spdRow.appendChild(spdSrc);
+  rightCol.appendChild(spdRow);
+  rightCol.appendChild(el('label', { style: 'font-size:11px;margin-top:6px;display:block' }, 'Направление'));
+  const dirRow = el('div', { class: 'input-row' });
+  dirRow.appendChild(dirInp);
+  dirRow.appendChild(dirFlag);
+  rightCol.appendChild(dirRow);
+  rightCol.appendChild(windReadout);
   windRow.appendChild(widgetWrap);
+  windRow.appendChild(rightCol);
   secQuick.appendChild(windRow);
 
-  // захват азимутов компасом телефона (вариант 2): наводишь спинкой — фиксируешь
+  function applySpeed() { spdField(activeWind).value = speedInp.value; spdField(activeWind).dispatchEvent(new Event('input', { bubbles: true })); }
+  speedInp.addEventListener('input', applySpeed);
+  dirInp.addEventListener('input', () => setActiveTo(dirToWindTo(dirInp.value), true));
+  function renderFlag() { dirFlag.textContent = numDirMode === 'clock' ? '🕐 часы' : '° азимут'; }
+  dirFlag.onclick = () => { numDirMode = numDirMode === 'clock' ? 'az' : 'clock'; localStorage.setItem('calcWindNumMode', numDirMode); renderFlag(); dirInp.value = windToToNum(parseFloat(dirField(activeWind).value) || 0); };
+  renderFlag();
+
+  // захват компасом телефона (спинка смотрит ОТКУДА дует) → пишет в АКТИВНЫЙ ветер
   const capRow = el('div', { class: 'row', style: 'margin-top:8px' });
-  const capTarget = el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
     onclick: async (ev) => {
       const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
-      try {
-        const h = await captureHeading();
-        form.azimuth_deg.value = Math.round(h);
-        form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true }));
-        toast(compassWarn() || `Азимут цели: ${Math.round(h)}°`);
-      } catch (e) { toast('Компас: ' + e.message); }
-      finally { b.textContent = old; b.disabled = false; }
-    } }, '🎯 Навёл на цель');
-  const capWind = el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+      try { const h = await captureHeading(); form.azimuth_deg.value = Math.round(h); form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true })); toast(compassWarn() || `Азимут цели: ${Math.round(h)}°`); }
+      catch (e) { toast('Компас: ' + e.message); } finally { b.textContent = old; b.disabled = false; }
+    } }, '🎯 Навёл на цель'));
+  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
     onclick: async (ev) => {
       const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
-      try {
-        const h = await captureHeading(); // спинка телефона смотрит ОТКУДА дует ветер
-        windDirHidden._commit(h + 180);   // h = «откуда», в TO это +180
-        buildWindWidget();
-        toast(compassWarn() || `Ветер откуда: ${Math.round(h)}°`);
-      } catch (e) { toast('Компас: ' + e.message); }
-      finally { b.textContent = old; b.disabled = false; }
-    } }, '🌬 Откуда ветер');
-  capRow.appendChild(capTarget);
-  capRow.appendChild(capWind);
+      try { const h = await captureHeading(); setActiveTo(h + 180, true); toast(compassWarn() || `Ветер W${activeWind} откуда: ${Math.round(h)}°`); }
+      catch (e) { toast('Компас: ' + e.message); } finally { b.textContent = old; b.disabled = false; }
+    } }, `🌬 Откуда ветер`));
   secQuick.appendChild(capRow);
 
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('v0', 'V₀, м/с', state.v0 ?? 830),
     numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0)
   ));
-  // кнопка «🌐 Погода по GPS» прямо здесь — заполняет ветер/темп./давл./влажн.
   secQuick.appendChild(attachAtmoButtons(form, 'pressureMbar'));
   form.appendChild(secQuick);
 
   const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
   form.appendChild(ctrlTabs);
 
-  buildWindWidget();
-  // азимут изменился (вручную/захват) → перерисовать (стрелка цели + часы);
-  // направление из Open-Meteo приходит как 'change' на скрытом поле.
+  bindActive();
+  // азимут поменялся → циферблат/часы пересчитать; направление W1 из Open-Meteo (событие change)
   form.addEventListener('input', e => {
-    if (e.target && e.target.name === 'azimuth_deg') buildWindWidget();
+    if (e.target && e.target.name === 'azimuth_deg') { buildDial(); dirInp.value = windToToNum(parseFloat(dirField(activeWind).value) || 0); updateReadout(); }
   });
-  windDirHidden.addEventListener('change', buildWindWidget);
+  windDirH.addEventListener('change', () => { if (activeWind === 1) bindActive(); });
 
   // === ПРОФИЛЬ (выбирается на отдельном экране «Профили», как в AB) ===
   const secBullet = makeSection('bullet');
@@ -2151,13 +2191,8 @@ route('/calc', async () => {
     [srcGPSLat()]));
   form.appendChild(secAtmo);
 
-  // === ПРОЧЕЕ ===
+  // === ПРОЧЕЕ ===  (Ветер 2 теперь на главной панели — переключатель W1/W2)
   const secMisc = makeSection('misc');
-  secMisc.appendChild(el('div', { class: 'banner' }, 'Ветер 2 — для расчёта при порывах.'));
-  secMisc.appendChild(el('div', { class: 'row' },
-    numInput('windSpeed2', 'Ветер 2, м/с', state.windSpeed2 ?? 0),
-    numInput('windAngle_deg2', 'Угол ветра 2, °', state.windAngle_deg2 ?? 90)
-  ));
   secMisc.appendChild(textInput('distances', 'Дистанции для таблицы (через запятую, м)',
     state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
   form.appendChild(secMisc);
@@ -2308,7 +2343,7 @@ route('/calc', async () => {
       const inp = { ...input, steps: [dist], targetDistance: Math.max(dist, input.zeroDistance || 100) };
       if (useW2) {
         inp.windSpeed = d.windSpeed2 || 0;
-        inp.windAngle_deg = d.windAngle_deg2 ?? 90;
+        inp.windAngle_deg = solverWindAngle(parseFloat(d.windDir2) || 0, d.azimuth_deg || 0);
       }
       const r2 = Ballistics.solve(inp);
       const row = r2.rows[0];
