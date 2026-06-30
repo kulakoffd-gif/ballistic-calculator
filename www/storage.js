@@ -13,9 +13,9 @@
 //   notes      — универсальные заметки прикреплённые к сущностям (Wave 2)
 
 const DB_NAME = 'skyrange';
-const DB_VER = 5;
+const DB_VER = 6;
 const STORES = ['ranges', 'positions', 'targets', 'weapons', 'cartridges', 'sessions', 'hits', 'shots',
-                'reticles', 'bullets', 'casePreps', 'notes', 'stages'];
+                'reticles', 'bullets', 'casePreps', 'notes', 'stages', 'profiles'];
 // Служебный store: «надгробия» удалённых записей {id:`${store}::${recId}`, store, recId, deletedAt}.
 // Нужны, чтобы удаление на одном устройстве распространялось при merge, а не «воскресало».
 const TOMB_STORE = '_tombstones';
