@@ -471,9 +471,8 @@ label { text-align: center; }
 .input-row > .sources button[disabled] { opacity: 0.5; cursor: wait; }
 /* брендовые бейджи источников (текстовые, не офиц. логотипы) */
 .input-row > .sources button.src-meteo { color: var(--accent); }
-.input-row > .sources button.src-kestrel {
-  font-weight: 700; font-size: 15px; color: #ff8b3d; letter-spacing: 0;
-}
+.input-row > .sources button.src-kestrel { color: #ff8b3d; }
+.bird-ico { width: 22px; height: 15px; display: block; margin: 0 auto; }
 .src-sig {
   display: inline-block; font-weight: 800; letter-spacing: 1px;
   color: #e23b2e; font-size: 13px; margin-right: 2px;

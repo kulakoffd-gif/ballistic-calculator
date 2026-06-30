@@ -558,8 +558,15 @@ function srcOpenMeteo(field, digits = 1) {
   return { icon: '📡', cls: 'src-meteo', title: 'Метеостанция (Open-Meteo)', digits,
     action: async () => (await getWeatherCached())[field] };
 }
+// Обобщённый значок «птица в полёте» (не копия конкретного логотипа) — для Kestrel.
+function kestrelBird() {
+  return h(`<svg class="bird-ico" viewBox="0 0 24 16" aria-hidden="true">
+    <path d="M2 11 Q 7 3.5 12 10 Q 17 3.5 22 11" fill="none" stroke="currentColor"
+      stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`);
+}
 function srcKestrel(field, digits = 1) {
-  return { icon: 'K', cls: 'src-kestrel', title: 'Kestrel', digits,
+  return { icon: kestrelBird(), cls: 'src-kestrel', title: 'Kestrel', digits,
     action: async () => { const d = kestrelLast(); if (!d) throw new Error('не подключён'); return d[field]; } };
 }
 function srcPhoneBaro() {
@@ -2107,60 +2114,19 @@ route('/calc', async () => {
   // === ПРОФИЛЬ (выбирается на отдельном экране «Профили», как в AB) ===
   const secBullet = makeSection('bullet');
   // активный профиль приходит из localStorage; на /calc — только скрытые поля + сводка
+  // На главном профиль НЕ редактируется (как в AB). Активный профиль выбирается на
+  // экране «Профили»; здесь только СКРЫТЫЕ поля со значениями из активного профиля.
+  // Имя профиля показывается плашкой в шапке HUD (тап → /profiles).
+  const numH = (name, val) => el('input', { type: 'number', name, value: val == null ? '' : val, hidden: true });
   secBullet.appendChild(el('input', { type: 'hidden', name: 'weaponId', value: state.weaponId || '' }));
   secBullet.appendChild(el('input', { type: 'hidden', name: 'cartridgeId', value: state.cartridgeId || '' }));
-
-  const profSummary = el('div', { class: 'profile-summary' });
-  secBullet.appendChild(profSummary);
-  const profEdit = el('div', { class: 'row', style: 'margin-top:6px' });
-  profEdit.appendChild(el('button', { type: 'button', class: 'btn', style: 'margin:0',
-    onclick: () => { location.hash = '#/profiles'; } }, '🎯 Сменить профиль'));
-  secBullet.appendChild(profEdit);
-
-  // Ручные поля — показываются ТОЛЬКО когда профиль не выбран (запасной режим).
-  const bulletManual = el('div', { class: 'manual-group' },
-    el('div', { class: 'muted', style: 'font-size:11px;margin:8px 0 4px' }, 'Пуля вручную:'),
-    el('div', { class: 'row' },
-      numInput('bc', 'BC (lb/in²)', state.bc ?? 0.45),
-      selectInput('dragModel', 'Модель', state.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])),
-    numInput('bulletMass_gr', 'Масса, gr', state.bulletMass_gr ?? 175));
-  secBullet.appendChild(bulletManual);
-  const gunManual = el('div', { class: 'manual-group' },
-    el('div', { class: 'muted', style: 'font-size:11px;margin:8px 0 4px' }, 'Оружие вручную:'),
-    el('div', { class: 'row' },
-      numInput('sightHeight_mm', 'Высота прицела, мм', state.sightHeight_mm ?? 50),
-      numInput('zeroDistance', 'Пристрелка, м', state.zeroDistance ?? 100)));
-  secBullet.appendChild(gunManual);
+  secBullet.appendChild(el('input', { type: 'hidden', name: 'dragModel', value: state.dragModel || 'G1' }));
+  secBullet.appendChild(numH('bc', state.bc ?? 0.45));
+  secBullet.appendChild(numH('bulletMass_gr', state.bulletMass_gr ?? 175));
+  secBullet.appendChild(numH('sightHeight_mm', state.sightHeight_mm ?? 50));
+  secBullet.appendChild(numH('zeroDistance', state.zeroDistance ?? 100));
   form.appendChild(secBullet);
-
-  function updateProfileView() {
-    const w = weapons.find(x => x.id === form.weaponId.value);
-    const c = cartridges.find(x => x.id === form.cartridgeId.value);
-    bulletManual.hidden = !!c;
-    gunManual.hidden = !!w;
-    profSummary.innerHTML = '';
-    if (!w && !c) {
-      profSummary.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
-        'Профиль не выбран — параметры вводятся вручную ниже. Создай профиль в «Оружие»/«Патроны», чтобы не вводить каждый раз.'));
-      return;
-    }
-    const rows = [];
-    if (c) {
-      rows.push(['Патрон', c.name]);
-      rows.push(['BC · модель', `${fmt(effectiveBC(c), 3)} ${effectiveDragModel(c)}`]);
-      if (c.bulletMass_gr) rows.push(['Масса', fmt(c.bulletMass_gr, 0) + ' gr']);
-      if (c.v0) rows.push(['V₀ (база)', fmt(c.v0, 0) + ' м/с']);
-    }
-    if (w) {
-      rows.push(['Оружие', w.name]);
-      if (w.sightHeight_mm != null) rows.push(['Высота прицела', fmt(w.sightHeight_mm, 0) + ' мм']);
-      if (w.zeroDistance != null) rows.push(['Пристрелка', fmt(w.zeroDistance, 0) + ' м']);
-      if (w.twist_in != null) rows.push(['Твист', fmt(w.twist_in, 1) + '″ ' + (w.twistRight !== false ? 'R' : 'L')]);
-    }
-    const kv = el('div', { class: 'kv', style: 'font-size:13px' });
-    for (const [k, v] of rows) { kv.appendChild(el('div', { class: 'k' }, k)); kv.appendChild(el('div', { class: 'v' }, String(v))); }
-    profSummary.appendChild(kv);
-  }
+  function updateProfileView() { /* профиль на главном не редактируется */ }
 
   // === АТМОСФЕРА ===
   const secAtmo = makeSection('atmo');
@@ -2198,11 +2164,10 @@ route('/calc', async () => {
 
   // === Заполнение tab-bar ===
   const tabs = [
-    { id: 'bullet', label: '🎯 Профиль' },
     { id: 'atmo',   label: '🌡 Meteo' },
     { id: 'misc',   label: '⚙ Прочее' }
   ];
-  let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'bullet';
+  let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'atmo';
   function showCtrlTab(id) {
     activeCtrlTab = id;
     state.activeCtrlTab = id;
