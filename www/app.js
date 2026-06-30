@@ -480,7 +480,7 @@ function attachAtmoButtons(form, pressureField) {
       form[pressureField].value = mbar.toFixed(0);
       toast(typeof r === 'number' ? 'Барометр' : `GPS h=${r.altitude.toFixed(0)}м → ${mbar.toFixed(0)} гПа`);
     } catch (e) { toast('Не удалось: ' + e.message); }
-  }}, '📡 Барометр / GPS-высота'));
+  }}, '📱 Барометр / GPS-высота'));
   wrap.appendChild(el('button', { type: 'button', class: 'btn outline', style: 'margin:0;flex:1', onclick: async () => {
     try {
       const w = await Weather.fetchByGPS();
@@ -499,7 +499,7 @@ function attachAtmoButtons(form, pressureField) {
       });
       toast(`Open-Meteo: ${w.tempC.toFixed(1)}°C · ${w.pressureMbar.toFixed(0)} гПа · ${w.humidity.toFixed(0)}% · ветер ${w.windSpeed.toFixed(1)} м/с ${Math.round(w.windDir)}°`);
     } catch (e) { toast('Open-Meteo: ' + e.message); }
-  }}, '🌐 Погода по GPS'));
+  }}, '📡 Погода с метеостанции'));
   return wrap;
 }
 
@@ -530,7 +530,7 @@ function numInputWithSources(name, label, val, sources, attrs = {}) {
   if (sources && sources.length) {
     const srcEl = el('div', { class: 'sources' });
     for (const s of sources) {
-      const btn = el('button', { type: 'button', title: s.title, onclick: async () => {
+      const btn = el('button', { type: 'button', title: s.title, class: s.cls || '', onclick: async () => {
         try {
           btn.disabled = true;
           const v = await s.action();
@@ -555,11 +555,11 @@ function numInputWithSources(name, label, val, sources, attrs = {}) {
 
 // фабрики стандартных источников
 function srcOpenMeteo(field, digits = 1) {
-  return { icon: '🌐', title: 'Open-Meteo', digits,
+  return { icon: '📡', cls: 'src-meteo', title: 'Метеостанция (Open-Meteo)', digits,
     action: async () => (await getWeatherCached())[field] };
 }
 function srcKestrel(field, digits = 1) {
-  return { icon: '📡', title: 'Kestrel', digits,
+  return { icon: 'K', cls: 'src-kestrel', title: 'Kestrel', digits,
     action: async () => { const d = kestrelLast(); if (!d) throw new Error('не подключён'); return d[field]; } };
 }
 function srcPhoneBaro() {
@@ -819,14 +819,16 @@ function attachKiloButton(targetSheetGetters) {
     const conn = [...BT.connections.values()].find(c => c.profileId === 'sig-kilo-bdx');
     if (!conn || !conn.lastData) {
       wrap.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
-        'SIG KILO: ' + (conn ? 'подключён, наведи и стрельни замером' : 'не подключён')));
+        el('span', { class: 'src-sig' }, 'SIG'),
+        ' KILO: ' + (conn ? 'подключён, наведи и стрельни замером' : 'не подключён')));
       return;
     }
     const d = conn.lastData;
     wrap.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => {
       if (d.range_m != null && targetSheetGetters.setDistance) targetSheetGetters.setDistance(d.range_m);
       toast('Дист.: ' + d.range_m?.toFixed(0) + ' м');
-    }}, `⥃ Применить KILO: ${d.range_m?.toFixed(0)} м${d.angle_deg != null ? ', ' + d.angle_deg.toFixed(1) + '°' : ''}`));
+    }}, el('span', { class: 'src-sig' }, 'SIG'),
+      ` KILO  ⥃  ${d.range_m?.toFixed(0)} м${d.angle_deg != null ? ', ' + d.angle_deg.toFixed(1) + '°' : ''}`));
   }
   render();
   BT.subscribe(ev => { if (ev.type === 'data' || ev.type === 'connect') render(); });
