@@ -2691,6 +2691,123 @@ route('/profile/:id', async ({ id }) => {
   view.appendChild(f);
 });
 
+// Соревновательные цели (ad-hoc, узнаём на брифинге) — независимо от полигонов.
+// Берёт активный профиль + ветер/атмосферу с главного экрана, для каждой цели
+// пересчитывает угол ветра под её азимут и выдаёт поправки. Вывод — таблица.
+route('/quick-targets', async () => {
+  setHeader({ title: 'Цели (брифинг)' });
+  const weapons = await Store.getAll('weapons');
+  const cartridges = await Store.getAll('cartridges');
+  const w = weapons.find(x => x.id === localStorage.getItem('activeWeaponId'));
+  const c = cartridges.find(x => x.id === localStorage.getItem('activeCartridgeId'));
+  const state = JSON.parse(localStorage.getItem('calc:last') || '{}');
+  let targets = [];
+  try { targets = JSON.parse(localStorage.getItem('quickTargets') || '[]'); } catch {}
+  const saveTargets = () => localStorage.setItem('quickTargets', JSON.stringify(targets));
+
+  // плашка: активный профиль + ветер/атмо (берутся с главного экрана)
+  const head = el('div', { class: 'card' });
+  head.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
+    'Профиль: ' + ([w && w.name, c && c.name].filter(Boolean).join(' · ') || '— не выбран, открой «Профили» —')));
+  const wTo = parseFloat(state.windDir) || 0, wFrom = ((wTo + 180) % 360 + 360) % 360;
+  head.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
+    `Ветер: ${fmt(state.windSpeed || 0, 1)} м/с, откуда ${Math.round(wFrom)}° · ${fmt(state.tempC ?? 15, 0)}°C · ${fmt(state.pressureMbar ?? 1013, 0)} гПа · V₀ ${fmt(state.v0 || 830, 0)} м/с`));
+  head.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px' },
+    'Ветер и атмосфера берутся с экрана «Стрельба». Угол ветра пересчитывается под азимут каждой цели.'));
+  view.appendChild(head);
+
+  // базовый ввод для солвера из активного профиля + атмо
+  function baseInput() {
+    const ammoT = state.ammoTempC ?? state.tempC ?? 15;
+    const v0t = c ? v0FromMvTable(c, ammoT) : null;
+    const useTable = v0t != null;
+    const isCustom = c && effectiveDragModel(c) === 'CUSTOM';
+    return {
+      bc: c ? effectiveBC(c) : (state.bc ?? 0.45),
+      dragModel: isCustom ? 'CUSTOM' : (c ? (c.dragModel || 'G1') : (state.dragModel || 'G1')),
+      customDrag: c?.customDrag || null,
+      v0: useTable ? v0t : (state.v0 ?? 830),
+      bulletMass_gr: c?.bulletMass_gr ?? state.bulletMass_gr ?? 175,
+      bulletLength_in: c?.bulletLength_in, caliber_in: c?.caliber_in,
+      twist_in: w?.twist_in, twistRight: w ? (w.twistRight !== false) : true,
+      cant_deg: state.cant_deg || 0, ammoTempC: ammoT,
+      v0_baseTempC: useTable ? ammoT : c?.v0_baseTempC,
+      v0_tempSens_mps_per_C: useTable ? 0 : c?.v0_tempSens_mps_per_C,
+      truingPoints: c?.truingPoints || null,
+      sightHeight: ((w?.sightHeight_mm ?? state.sightHeight_mm ?? 50)) / 1000,
+      zeroDistance: w?.zeroDistance ?? state.zeroDistance ?? 100,
+      tempC: state.tempC ?? 15, pressureMbar: state.pressureMbar ?? 1013, humidity: state.humidity ?? 50,
+      shotAngle_deg: state.shotAngle_deg || 0, latitude_deg: state.latitude_deg ?? 55,
+    };
+  }
+  function solveTarget(t) {
+    const az = t.azimuth_deg || 0;
+    const inp = { ...baseInput(), azimuth_deg: az,
+      windSpeed: state.windSpeed || 0,
+      windAngle_deg: solverWindAngle(parseFloat(state.windDir) || 0, az),
+      targetDistance: Math.max(t.distance_m || 0, 1), steps: [t.distance_m || 0] };
+    const r = Ballistics.solve(inp);
+    const row = r.rows[0];
+    if (row && c) applyCartridgeOffset(row, c, true);
+    return row;
+  }
+
+  // форма добавления цели
+  const f = el('form', { class: 'card' });
+  f.appendChild(el('h2', {}, 'Добавить цель'));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('tname', 'Имя (необяз.)', '', { placeholder: 'T1' }),
+    numInput('tdist', 'Дистанция, м', '', { required: true })));
+  const azRow = el('div', { class: 'input-row' });
+  const azInp = el('input', { id: 'taz', name: 'taz', type: 'number', inputmode: 'decimal', placeholder: 'Азимут цели, °', style: 'flex:1' });
+  const azCap = el('button', { type: 'button', class: 'src-meteo', title: 'Навёл на цель — захват компасом', onclick: async (ev) => {
+    const b = ev.currentTarget; b.disabled = true;
+    try { const h = await captureHeading(); azInp.value = Math.round(h); toast(compassWarn() || `Азимут: ${Math.round(h)}°`); }
+    catch (e) { toast('Компас: ' + e.message); } finally { b.disabled = false; }
+  } }, '🎯');
+  azRow.appendChild(azInp); const azSrc = el('div', { class: 'sources' }); azSrc.appendChild(azCap); azRow.appendChild(azSrc);
+  f.appendChild(el('label', { for: 'taz', style: 'font-size:12px' }, 'Азимут цели, ° (или 🎯 компасом)'));
+  f.appendChild(azRow);
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, '+ Добавить цель'));
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = readForm(f);
+    if (!d.tdist) { toast('Укажи дистанцию'); return; }
+    targets.push({ id: Store.uid(), name: d.tname || ('T' + (targets.length + 1)), distance_m: d.tdist, azimuth_deg: parseFloat(azInp.value) || 0 });
+    saveTargets(); navigate();
+  });
+  view.appendChild(f);
+
+  // таблица решений
+  const out = el('div', { class: 'card' });
+  out.appendChild(el('h2', {}, 'Поправки по целям'));
+  if (!targets.length) {
+    out.appendChild(el('div', { class: 'muted' }, 'Пока нет целей. Добавь выше.'));
+  } else {
+    const t = el('table', { class: 'table' });
+    t.appendChild(h(`<thead><tr><th>Цель</th><th>Дист.</th><th>Аз.</th><th>Ветер</th><th>Верт. mil</th><th>Гор. mil</th><th></th></tr></thead>`));
+    const tb = el('tbody');
+    for (const tg of targets) {
+      const row = solveTarget(tg);
+      const tr = el('tr');
+      tr.appendChild(el('td', {}, tg.name || ''));
+      tr.appendChild(el('td', {}, fmt(tg.distance_m, 0) + ' м'));
+      tr.appendChild(el('td', {}, Math.round(tg.azimuth_deg) + '°'));
+      tr.appendChild(el('td', {}, windToClock(parseFloat(state.windDir) || 0, tg.azimuth_deg)));
+      tr.appendChild(el('td', { class: 'accent' }, row ? fmt(row.drop_mil, 2) : '—'));
+      tr.appendChild(el('td', { class: 'accent' }, row ? fmt(row.drift_mil, 2) : '—'));
+      const del = el('td', {}); del.appendChild(el('span', { style: 'cursor:pointer', onclick: () => { targets = targets.filter(x => x.id !== tg.id); saveTargets(); navigate(); } }, '✕'));
+      tr.appendChild(del);
+      tb.appendChild(tr);
+    }
+    t.appendChild(tb);
+    out.appendChild(el('div', { style: 'overflow-x:auto' }, t));
+    out.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:8px',
+      onclick: () => { if (confirm('Очистить все цели?')) { targets = []; saveTargets(); navigate(); } } }, 'Очистить список'));
+  }
+  view.appendChild(out);
+});
+
 route('/weapons', async () => {
   setHeader({ title: 'Оружие' });
   const items = await Store.getAll('weapons');
