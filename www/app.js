@@ -2365,7 +2365,7 @@ route('/calc', async () => {
       if (!row) return;
       const w2Active = (d.windSpeed2 || 0) > 0;
       const row2 = w2Active ? solveAt(bigDist, true) : null;
-      distLabel.textContent = `ДИСТАНЦИЯ ${bigDist} м`;
+      distLabel.textContent = `ДИСТАНЦИЯ ${Units.distStr(bigDist)}`;
       mainGrid.innerHTML = '';
       mainGrid.classList.toggle('has-w2', w2Active);
 
@@ -2373,20 +2373,20 @@ route('/calc', async () => {
       dropAxis.appendChild(el('div', { class: 'lbl' }, 'Вертикаль'));
       const dropVal = el('div', { class: 'val' });
       dropVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drop_mil, 'v')));
-      dropVal.appendChild(document.createTextNode(fmt(Math.abs(row.drop_mil), 2)));
-      dropVal.appendChild(el('span', { class: 'unit' }, 'mil'));
+      dropVal.appendChild(document.createTextNode(Units.corrVal(Math.abs(row.drop_mil), Math.abs(row.drop_moa))));
+      dropVal.appendChild(el('span', { class: 'unit' }, Units.corrUnit()));
       dropAxis.appendChild(dropVal);
-      dropAxis.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row.drop_moa), 1)} MOA · ${fmt(Math.abs(row.drop_m) * 100, 0)} см`));
+      dropAxis.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row.drop_mil), Math.abs(row.drop_moa), Math.abs(row.drop_m))));
       mainGrid.appendChild(dropAxis);
 
       const driftAxis = el('div', { class: 'axis' });
       driftAxis.appendChild(el('div', { class: 'lbl' }, w2Active ? 'Гор. W1' : 'Горизонталь'));
       const drVal = el('div', { class: 'val' });
       drVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drift_mil, 'h')));
-      drVal.appendChild(document.createTextNode(fmt(Math.abs(row.drift_mil), 2)));
-      drVal.appendChild(el('span', { class: 'unit' }, 'mil'));
+      drVal.appendChild(document.createTextNode(Units.corrVal(Math.abs(row.drift_mil), Math.abs(row.drift_moa))));
+      drVal.appendChild(el('span', { class: 'unit' }, Units.corrUnit()));
       driftAxis.appendChild(drVal);
-      driftAxis.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row.drift_moa), 1)} MOA · ${fmt(Math.abs(row.drift_m) * 100, 0)} см`));
+      driftAxis.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row.drift_mil), Math.abs(row.drift_moa), Math.abs(row.drift_m))));
       mainGrid.appendChild(driftAxis);
 
       if (w2Active && row2) {
@@ -2394,10 +2394,10 @@ route('/calc', async () => {
         driftAxis2.appendChild(el('div', { class: 'lbl' }, 'Гор. W2'));
         const drVal2 = el('div', { class: 'val' });
         drVal2.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row2.drift_mil, 'h')));
-        drVal2.appendChild(document.createTextNode(fmt(Math.abs(row2.drift_mil), 2)));
-        drVal2.appendChild(el('span', { class: 'unit' }, 'mil'));
+        drVal2.appendChild(document.createTextNode(Units.corrVal(Math.abs(row2.drift_mil), Math.abs(row2.drift_moa))));
+        drVal2.appendChild(el('span', { class: 'unit' }, Units.corrUnit()));
         driftAxis2.appendChild(drVal2);
-        driftAxis2.appendChild(el('div', { class: 'sub-val' }, `${fmt(Math.abs(row2.drift_moa), 1)} MOA · ${fmt(Math.abs(row2.drift_m) * 100, 0)} см`));
+        driftAxis2.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row2.drift_mil), Math.abs(row2.drift_moa), Math.abs(row2.drift_m))));
         mainGrid.appendChild(driftAxis2);
       }
 
@@ -2405,8 +2405,8 @@ route('/calc', async () => {
       detailStrip.innerHTML = '';
       const cells = [
         ['TOF', `${fmt(row.tof_s, 2)} с`],
-        ['Энергия', row.energy_J != null ? `${fmt(row.energy_J, 0)} Дж` : '—'],
-        ['Скорость', `${fmt(row.vel_mps, 0)} м/с`],
+        ['Энергия', row.energy_J != null ? Units.energyStr(row.energy_J) : '—'],
+        ['Скорость', Units.velStr(row.vel_mps)],
         ['Mach', row.mach != null ? fmt(row.mach, 2) : '—'],
       ];
       for (const [k, v] of cells) {
@@ -2487,17 +2487,17 @@ route('/calc', async () => {
     const paramCard = el('div', { class: 'card' });
     const kvParams = el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'V на цели'),
-      el('div', { class: 'v' }, fmt(rowAt.vel_mps, 0) + ' м/с'),
+      el('div', { class: 'v' }, Units.velStr(rowAt.vel_mps)),
       el('div', { class: 'k' }, 'Время полёта'),
       el('div', { class: 'v' }, fmt(rowAt.tof_s, 2) + ' с'),
       el('div', { class: 'k' }, 'Плотность воздуха'), el('div', { class: 'v' }, fmt(res.airDensity,3) + ' кг/м³'),
-      el('div', { class: 'k' }, 'Density Altitude'), el('div', { class: 'v' }, fmt(DA_ft,0) + ' ft'),
-      el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, fmt(res.speedOfSound,1) + ' м/с'),
+      el('div', { class: 'k' }, 'Density Altitude'), el('div', { class: 'v' }, Units.daStr(DA_ft)),
+      el('div', { class: 'k' }, 'Скорость звука'), el('div', { class: 'v' }, Units.velStr(res.speedOfSound)),
       el('div', { class: 'k' }, 'Угол бросания'), el('div', { class: 'v' }, fmt(res.launchAngle_deg,3) + '°')
     );
     if (E_J != null) {
       kvParams.appendChild(el('div', { class: 'k' }, 'Энергия'));
-      kvParams.appendChild(el('div', { class: 'v' }, `${fmt(E_J,0)} Дж · ${fmt(E_fl,0)} ft·lb`));
+      kvParams.appendChild(el('div', { class: 'v' }, Units.energyStr(E_J)));
     }
     if (TKO != null) {
       kvParams.appendChild(el('div', { class: 'k' }, 'Taylor KO'));
@@ -2806,6 +2806,31 @@ route('/quick-targets', async () => {
       onclick: () => { if (confirm('Очистить все цели?')) { targets = []; saveTargets(); navigate(); } } }, 'Очистить список'));
   }
   view.appendChild(out);
+});
+
+// Экран выбора единиц отображения (выпадающие списки + сохранение).
+route('/units', async () => {
+  setHeader({ title: 'Единицы измерения' });
+  const u = Units.get();
+  const f = el('form', { class: 'card' });
+  f.appendChild(el('h2', {}, 'Единицы отображения'));
+  f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' },
+    'Расчёт всегда в метрической базе. Здесь выбираешь, в чём ПОКАЗЫВАТЬ значения. Настраивается один раз; ввод в полях остаётся метрическим.'));
+  for (const key of Object.keys(Units.LABELS)) {
+    f.appendChild(selectInput(key, Units.LABELS[key], u[key],
+      Units.OPTIONS[key].map(([value, label]) => ({ value, label }))));
+  }
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = readForm(f);
+    const next = {};
+    for (const key of Object.keys(Units.LABELS)) next[key] = d[key];
+    Units.save(next);
+    toast('Единицы сохранены');
+    location.hash = '#/calc';
+  });
+  view.appendChild(f);
 });
 
 route('/weapons', async () => {
