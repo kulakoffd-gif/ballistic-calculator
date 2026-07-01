@@ -21,7 +21,7 @@ const Units = {
   windStr(mps) { return `${nf(mps, 1)} м/с`; },
   windUnit() { return 'м/с'; },
   energyStr(J) { return `${nf(J, 0)} Дж`; },
-  daStr(ft) { return `${nf(ft, 0)} ft`; },
+  daStr(ft) { return `${nf(ft * 0.3048, 0)} м`; },
 };
 
 window.Units = Units;
