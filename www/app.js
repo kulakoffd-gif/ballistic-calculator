@@ -2143,6 +2143,9 @@ route('/calc', async () => {
 
   const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
   form.appendChild(ctrlTabs);
+  // контейнер-секций контроллеров: доступ по тапу ИЛИ свайпом влево/вправо (как в AB)
+  const ctrlSwipeArea = el('div', { class: 'calc-ctrl-swipe' });
+  form.appendChild(ctrlSwipeArea);
 
   bindActive();
   // азимут поменялся → циферблат/часы пересчитать; направление W1 из Open-Meteo (событие change)
@@ -2165,13 +2168,33 @@ route('/calc', async () => {
   secBullet.appendChild(numH('bulletMass_gr', state.bulletMass_gr ?? 175));
   secBullet.appendChild(numH('sightHeight_mm', state.sightHeight_mm ?? 50));
   secBullet.appendChild(numH('zeroDistance', state.zeroDistance ?? 100));
-  form.appendChild(secBullet);
+  ctrlSwipeArea.appendChild(secBullet);
   function updateProfileView() { /* профиль на главном не редактируется */ }
 
   // === АТМОСФЕРА ===
   const secAtmo = makeSection('atmo');
   secAtmo.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
     '🌐 Open-Meteo · 📱 датчик · 📡 Kestrel'));
+  // Живой поток с Kestrel (как в AB): пока переключатель включён и Kestrel подключён,
+  // темп./давл./влажн./ветер обновляются сами при каждом новом пакете данных.
+  const kestrelStreamChip = el('div', { class: 'chip' + (localStorage.getItem('kestrelStream') === '1' ? ' active' : ''),
+    style: 'margin-bottom:8px', onclick: (e) => {
+      const on = !e.currentTarget.classList.contains('active');
+      e.currentTarget.classList.toggle('active', on);
+      localStorage.setItem('kestrelStream', on ? '1' : '0');
+      toast(on ? 'Kestrel: живой поток включён' : 'Kestrel: живой поток выключен');
+    } }, kestrelBird(), ' живой поток Kestrel');
+  secAtmo.appendChild(kestrelStreamChip);
+  function applyKestrelStream() {
+    if (localStorage.getItem('kestrelStream') !== '1') return;
+    const d = kestrelLast(); if (!d) return;
+    if (d.tempC != null) { form.tempC.value = d.tempC.toFixed(1); form.tempC.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (d.pressureMbar != null) { form.pressureMbar.value = d.pressureMbar.toFixed(0); form.pressureMbar.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (d.humidity != null) { form.humidity.value = d.humidity.toFixed(0); form.humidity.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (d.windSpeed != null) { speedInp.value = d.windSpeed.toFixed(1); applySpeed(); }
+  }
+  const unsubKestrelStream = BT.subscribe(ev => { if (ev.type === 'data') applyKestrelStream(); });
+  window.addEventListener('hashchange', function offKestrelStream() { try { unsubKestrelStream && unsubKestrelStream(); } catch {} window.removeEventListener('hashchange', offKestrelStream); }, { once: true });
   secAtmo.appendChild(el('div', { class: 'row' },
     numInputWithSources('tempC', 'Темп., °C', state.tempC ?? 15,
       [srcOpenMeteo('tempC', 1), srcKestrel('tempC', 1)]),
@@ -2189,13 +2212,13 @@ route('/calc', async () => {
   ));
   secAtmo.appendChild(numInputWithSources('latitude_deg', 'Широта (Кориолис), °', state.latitude_deg ?? 55,
     [srcGPSLat()]));
-  form.appendChild(secAtmo);
+  ctrlSwipeArea.appendChild(secAtmo);
 
   // === ПРОЧЕЕ ===  (Ветер 2 теперь на главной панели — переключатель W1/W2)
   const secMisc = makeSection('misc');
   secMisc.appendChild(textInput('distances', 'Дистанции для таблицы (через запятую, м)',
     state.distances || '100, 200, 300, 400, 500, 600, 800, 1000'));
-  form.appendChild(secMisc);
+  ctrlSwipeArea.appendChild(secMisc);
 
   // === Заполнение tab-bar ===
   const tabs = [
@@ -2216,6 +2239,24 @@ route('/calc', async () => {
       onclick: () => showCtrlTab(t.id) }, t.label));
   }
   showCtrlTab(activeCtrlTab);
+
+  // свайп влево/вправо по области контроллеров переключает вкладки (как в AB)
+  (function enableCtrlSwipe() {
+    let sx = 0, sy = 0, tracking = false;
+    ctrlSwipeArea.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+    }, { passive: true });
+    ctrlSwipeArea.addEventListener('touchend', (e) => {
+      if (!tracking) return; tracking = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // не горизонтальный свайп
+      const idx = tabs.findIndex(x => x.id === activeCtrlTab);
+      const next = dx < 0 ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length;
+      showCtrlTab(tabs[next].id);
+    }, { passive: true });
+  })();
 
   form.weaponId.addEventListener('change', () => {
     const w = weapons.find(x => x.id === form.weaponId.value);
@@ -2657,31 +2698,109 @@ route('/profiles', async () => {
   view.appendChild(comp);
 });
 
-route('/profile/:id', async ({ id }) => {
+// Единый профиль — ОДИН экран (как в AB): Bullet Data + Gun Data + Scope редактируются
+// прямо здесь, без ухода на отдельные страницы «Оружие»/«Патроны». Селекторы позволяют
+// делить одно оружие между несколькими патронами (база + сдвиг — см. HANDOFF.md).
+// Расширенные настройки (CBA, хронограф, custom drag, truing, MV-temp) — по ссылке.
+route('/profile/:id', async ({ id }, query) => {
   const isNew = id === 'new';
   const weapons = await Store.getAll('weapons');
   const cartridges = await Store.getAll('cartridges');
+  const reticles = await Store.getAll('reticles');
   const p = isNew
     ? { id: Store.uid(), name: '', weaponId: localStorage.getItem('activeWeaponId') || '', cartridgeId: localStorage.getItem('activeCartridgeId') || '' }
     : (await Store.get('profiles', id)) || { id, name: '' };
+  // query.w/query.c — временный выбор при смене селектора (не сохранён ещё)
+  const curWId = query && query.w !== undefined ? query.w : (p.weaponId || '');
+  const curCId = query && query.c !== undefined ? query.c : (p.cartridgeId || '');
+  const w0 = weapons.find(x => x.id === curWId) || {};
+  const c0 = cartridges.find(x => x.id === curCId) || {};
   setHeader({ title: isNew ? 'Новый профиль' : (p.name || 'Профиль') });
+
   const f = el('form', { class: 'card' });
   f.appendChild(el('h2', {}, 'Профиль'));
-  f.appendChild(textInput('name', 'Название', p.name, { required: true, placeholder: 'напр. Tikka .308 + 175 SMK' }));
-  f.appendChild(selectInput('weaponId', 'Оружие', p.weaponId, [{ value: '', label: '— выбрать —' }, ...weapons.map(w => ({ value: w.id, label: w.name || 'Без названия' }))]));
-  f.appendChild(selectInput('cartridgeId', 'Патрон', p.cartridgeId, [{ value: '', label: '— выбрать —' }, ...cartridges.map(c => ({ value: c.id, label: c.name || 'Без названия' }))]));
-  const links = el('div', { class: 'row', style: 'margin-top:4px' });
-  links.appendChild(el('a', { class: 'btn ghost', href: '#/weapon/new' }, '+ Оружие'));
-  links.appendChild(el('a', { class: 'btn ghost', href: '#/cartridge/new' }, '+ Патрон'));
-  f.appendChild(links);
+  f.appendChild(textInput('name', 'Название профиля', p.name, { required: true, placeholder: 'напр. Tikka .308 + 175 SMK' }));
+
+  const wSelWrap = selectInput('weaponId', 'Оружие', curWId, [{ value: '', label: '— новое —' }, ...weapons.map(x => ({ value: x.id, label: x.name || 'Без названия' }))]);
+  const cSelWrap = selectInput('cartridgeId', 'Патрон', curCId, [{ value: '', label: '— новый —' }, ...cartridges.map(x => ({ value: x.id, label: x.name || 'Без названия' }))]);
+  f.appendChild(wSelWrap); f.appendChild(cSelWrap);
+  const wSel = wSelWrap.querySelector('select'), cSel = cSelWrap.querySelector('select');
+  const gotoWithSel = () => { location.hash = `#/profile/${isNew ? 'new' : id}?w=${wSel.value}&c=${cSel.value}`; };
+  wSel.addEventListener('change', gotoWithSel);
+  cSel.addEventListener('change', gotoWithSel);
+
+  // === 🔫 Bullet Data (встроено, как в AB) ===
+  const bulletSec = el('div', { style: 'margin-top:10px' });
+  bulletSec.appendChild(el('h2', {}, '🔫 Bullet Data'));
+  bulletSec.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openBulletLibrarySheet(b => {
+    f.bc.value = b.bcG7; f.dragModel.value = 'G7';
+    f.bulletMass_gr.value = b.mass_gr; f.bulletLength_in.value = b.len_in; f.caliber_in.value = b.caliber_in;
+    toast('Заполнено: ' + b.name);
+  })}, '📚 Выбрать из библиотеки'));
+  bulletSec.appendChild(el('div', { class: 'row' },
+    numInput('bc', 'BC (lb/in²)', c0.bc ?? ''),
+    selectInput('dragModel', 'Модель', c0.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])
+  ));
+  bulletSec.appendChild(el('div', { class: 'row' },
+    numInput('v0', 'V₀, м/с', c0.v0 ?? ''),
+    numInput('bulletMass_gr', 'Масса, gr', c0.bulletMass_gr ?? '')
+  ));
+  bulletSec.appendChild(el('div', { class: 'row' },
+    numInput('bulletLength_in', 'Длина пули, in', c0.bulletLength_in ?? ''),
+    numInput('caliber_in', 'Калибр, in', c0.caliber_in ?? '')
+  ));
+  f.appendChild(bulletSec);
+
+  // === 🎯 Gun Data (встроено) ===
+  const gunSec = el('div', { style: 'margin-top:10px' });
+  gunSec.appendChild(el('h2', {}, '🎯 Gun Data'));
+  gunSec.appendChild(el('div', { class: 'row' },
+    numInput('sightHeight_mm', 'Высота прицела, мм', w0.sightHeight_mm ?? 50),
+    numInput('zeroDistance', 'Пристрелка, м', w0.zeroDistance ?? 100)
+  ));
+  gunSec.appendChild(el('div', { class: 'row' },
+    numInput('twist_in', 'Твист, in', w0.twist_in ?? ''),
+    selectInput('twistRight', 'Направление нарезов', (w0.twistRight === false) ? 'false' : 'true',
+      [{ value: 'true', label: 'Правое (RH)' }, { value: 'false', label: 'Левое (LH)' }])
+  ));
+  f.appendChild(gunSec);
+
+  // === 🔭 Scope ===
+  const scopeSec = el('div', { style: 'margin-top:10px' });
+  scopeSec.appendChild(el('h2', {}, '🔭 Scope'));
+  scopeSec.appendChild(selectInput('reticleId', 'Сетка прицела', w0.reticleId || '',
+    [{ value: '', label: '— не выбрана —' }, ...reticles.map(r => ({ value: r.id, label: r.name }))]));
+  f.appendChild(scopeSec);
+
+  // ссылки на расширенные настройки — только для уже сохранённых оружия/патрона
+  const advRow = el('div', { class: 'row', style: 'margin-top:8px' });
+  if (curWId) advRow.appendChild(el('a', { class: 'btn ghost', href: '#/weapon/' + curWId }, '✎ Доп. настройки оружия (CBA)'));
+  if (curCId) advRow.appendChild(el('a', { class: 'btn ghost', href: '#/cartridge/' + curCId }, '✎ Доп. настройки патрона (хроно, truing…)'));
+  if (advRow.children.length) f.appendChild(advRow);
+
   f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить и сделать активным'));
   if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
-    if (confirm('Удалить профиль?')) { await Store.del('profiles', p.id); if (localStorage.getItem('activeProfileId') === p.id) localStorage.removeItem('activeProfileId'); location.hash = '#/profiles'; }
-  } }, 'Удалить'));
+    if (confirm('Удалить профиль? (оружие и патрон останутся в своих разделах)')) { await Store.del('profiles', p.id); if (localStorage.getItem('activeProfileId') === p.id) localStorage.removeItem('activeProfileId'); location.hash = '#/profiles'; }
+  } }, 'Удалить профиль'));
+
   f.addEventListener('submit', async e => {
     e.preventDefault();
     const d = readForm(f);
-    const saved = await Store.put('profiles', { ...p, name: d.name, weaponId: d.weaponId, cartridgeId: d.cartridgeId });
+    const wExisting = d.weaponId ? weapons.find(x => x.id === d.weaponId) : null;
+    const wRec = {
+      ...(wExisting || { id: Store.uid(), name: d.name }),
+      sightHeight_mm: d.sightHeight_mm, zeroDistance: d.zeroDistance,
+      twist_in: d.twist_in, twistRight: d.twistRight !== 'false', reticleId: d.reticleId,
+    };
+    const savedW = await Store.put('weapons', wRec);
+    const cExisting = d.cartridgeId ? cartridges.find(x => x.id === d.cartridgeId) : null;
+    const cRec = {
+      ...(cExisting || { id: Store.uid(), name: d.name }),
+      bc: d.bc, dragModel: d.dragModel, v0: d.v0,
+      bulletMass_gr: d.bulletMass_gr, bulletLength_in: d.bulletLength_in, caliber_in: d.caliber_in,
+    };
+    const savedC = await Store.put('cartridges', cRec);
+    const saved = await Store.put('profiles', { ...p, name: d.name, weaponId: savedW.id, cartridgeId: savedC.id });
     localStorage.setItem('activeProfileId', saved.id);
     localStorage.setItem('activeWeaponId', saved.weaponId || '');
     localStorage.setItem('activeCartridgeId', saved.cartridgeId || '');

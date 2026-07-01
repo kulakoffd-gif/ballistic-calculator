@@ -330,6 +330,8 @@ label { text-align: center; }
   font-size: 12px; letter-spacing: 0.5px;
 }
 .form-section[hidden] { display: none; }
+/* область контроллеров: свайп влево/вправо переключает вкладки, вертикальный скролл не блокируется */
+.calc-ctrl-swipe { touch-action: pan-y; }
 .form-section { padding: 4px 0; }
 /* Закреплённый блок ветра/скорости — всегда виден, с акцентной рамкой */
 .form-pinned {
