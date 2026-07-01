@@ -672,6 +672,25 @@ function applyCartridgeOffset(row, cart, rezeroed) {
   return row;
 }
 
+// Sight Scale Factor — калибровка масштаба барабанов прицела (как в AB Ballistic
+// Calibration → DSF). Корректирует конечную поправку, если барабан реально даёт
+// не ровно 1 mil/клик, а немного больше/меньше. ssfElevation/ssfWindage хранятся
+// в профиле оружия, по умолчанию 1.0 (без коррекции). Применяется ПОСЛЕДНИМ шагом —
+// после сдвига базового патрона.
+function applySSF(row, weapon) {
+  if (!row || !weapon) return row;
+  const se = weapon.ssfElevation ?? 1;
+  const sw = weapon.ssfWindage ?? 1;
+  if (se === 1 && sw === 1) return row;
+  row.drop_mil  = (row.drop_mil  || 0) * se;
+  row.drift_mil = (row.drift_mil || 0) * sw;
+  row.drop_moa  = row.drop_mil  * 3.438;
+  row.drift_moa = row.drift_mil * 3.438;
+  row.drop_m  = row.range > 0 ? -row.drop_mil  / 1000 * row.range : 0;
+  row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
+  return row;
+}
+
 // ============== compass helper ==============
 function createMiniCompass(size = 64) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -2322,8 +2341,8 @@ route('/calc', async () => {
     out.innerHTML = '';
     const outX = $('#calc-extra');
     if (outX) outX.innerHTML = '';
-    // применяем сдвиг ко всем строкам
-    for (const row of res.rows) if (c) applyCartridgeOffset(row, c, rezeroed);
+    // применяем сдвиг ко всем строкам + SSF (масштаб барабанов)
+    for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (w) applySSF(row, w); }
 
     // плашка о применённом сдвиге, если есть
     if (c && !c.isBase && !rezeroed && (c.offsetVertMil || c.offsetHorizMil)) {
@@ -2390,6 +2409,7 @@ route('/calc', async () => {
       const row = r2.rows[0];
       if (row) row.mach = r2.speedOfSound ? row.vel_mps / r2.speedOfSound : null;
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
+      if (row && w) applySSF(row, w);
       return row;
     }
     function dirArrow(value, axis) {
@@ -2763,6 +2783,11 @@ route('/profile/:id', async ({ id }, query) => {
     selectInput('twistRight', 'Направление нарезов', (w0.twistRight === false) ? 'false' : 'true',
       [{ value: 'true', label: 'Правое (RH)' }, { value: 'false', label: 'Левое (LH)' }])
   ));
+  gunSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:8px' }, 'Sight Scale Factor (по умолч. 1.000 — без коррекции):'));
+  gunSec.appendChild(el('div', { class: 'row' },
+    numInput('ssfElevation', 'SSF вертикаль', w0.ssfElevation ?? 1, { step: '0.001' }),
+    numInput('ssfWindage', 'SSF горизонталь', w0.ssfWindage ?? 1, { step: '0.001' })
+  ));
   f.appendChild(gunSec);
 
   // === 🔭 Scope ===
@@ -2791,6 +2816,7 @@ route('/profile/:id', async ({ id }, query) => {
       ...(wExisting || { id: Store.uid(), name: d.name }),
       sightHeight_mm: d.sightHeight_mm, zeroDistance: d.zeroDistance,
       twist_in: d.twist_in, twistRight: d.twistRight !== 'false', reticleId: d.reticleId,
+      ssfElevation: d.ssfElevation ?? 1, ssfWindage: d.ssfWindage ?? 1,
     };
     const savedW = await Store.put('weapons', wRec);
     const cExisting = d.cartridgeId ? cartridges.find(x => x.id === d.cartridgeId) : null;
@@ -2868,6 +2894,7 @@ route('/quick-targets', async () => {
     const r = Ballistics.solve(inp);
     const row = r.rows[0];
     if (row && c) applyCartridgeOffset(row, c, true);
+    if (row && w) applySSF(row, w);
     return row;
   }
 
@@ -2968,6 +2995,16 @@ route('/weapon/:id', async ({ id }) => {
     f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:-6px' },
       'Создай сетку в разделе «Сетки прицелов»: загрузи фото своей сетки и откалибруй по двум точкам.'));
   }
+  // — Sight Scale Factor (калибровка масштаба барабанов, как в AB Ballistic Calibration) —
+  f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Sight Scale Factor'));
+  f.appendChild(el('div', { class: 'banner' },
+    'Если барабан реально даёт не ровно 1 mil на клик (проверено по DOPE на дальней дистанции), впиши коэффициент. Пример: попросил 10.00 mil, а фактически улетело как на 9.80 → SSF = 9.80/10.00 = 0.980. По умолчанию 1.000 — без коррекции.'));
+  f.appendChild(el('div', { class: 'row' },
+    numInput('ssfElevation', 'SSF по вертикали', w.ssfElevation ?? 1, { step: '0.001' }),
+    numInput('ssfWindage', 'SSF по горизонтали', w.ssfWindage ?? 1, { step: '0.001' })
+  ));
+
   // — Cold Bore Adjustment (первый «холодный» выстрел) —
   f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Cold Bore Adjustment'));
