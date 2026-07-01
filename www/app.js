@@ -2808,31 +2808,6 @@ route('/quick-targets', async () => {
   view.appendChild(out);
 });
 
-// Экран выбора единиц отображения (выпадающие списки + сохранение).
-route('/units', async () => {
-  setHeader({ title: 'Единицы измерения' });
-  const u = Units.get();
-  const f = el('form', { class: 'card' });
-  f.appendChild(el('h2', {}, 'Единицы отображения'));
-  f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' },
-    'Расчёт всегда в метрической базе. Здесь выбираешь, в чём ПОКАЗЫВАТЬ значения. Настраивается один раз; ввод в полях остаётся метрическим.'));
-  for (const key of Object.keys(Units.LABELS)) {
-    f.appendChild(selectInput(key, Units.LABELS[key], u[key],
-      Units.OPTIONS[key].map(([value, label]) => ({ value, label }))));
-  }
-  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить'));
-  f.addEventListener('submit', e => {
-    e.preventDefault();
-    const d = readForm(f);
-    const next = {};
-    for (const key of Object.keys(Units.LABELS)) next[key] = d[key];
-    Units.save(next);
-    toast('Единицы сохранены');
-    location.hash = '#/calc';
-  });
-  view.appendChild(f);
-});
-
 route('/weapons', async () => {
   setHeader({ title: 'Оружие' });
   const items = await Store.getAll('weapons');
@@ -5032,12 +5007,12 @@ route('/wez', async () => {
 route('/group-analyzer', async () => {
   setHeader({ title: 'Анализ кучности' });
   view.appendChild(el('div', { class: 'banner' },
-    'Загрузи фото мишени → задай 2 калибровочные точки с известной длиной → тапни пробоины. Получишь Mean Radius / Extreme Spread в см и MOA.'));
+    'Загрузи фото мишени → задай 2 калибровочные точки с известной длиной → тапни пробоины. Получишь Mean Radius / Extreme Spread в мм и mil.'));
   const card = el('div', { class: 'card' });
   view.appendChild(card);
   let mode = 'idle';
   let imgEl = null, displayScale = 1;
-  let cal = { p1: null, p2: null, lenCm: 10 };
+  let cal = { p1: null, p2: null, lenMm: 100 };
   const shots = [];
   let dist_m = 100;
 
@@ -5087,27 +5062,24 @@ route('/group-analyzer', async () => {
       return;
     }
     const dpx = Math.hypot(cal.p2.x - cal.p1.x, cal.p2.y - cal.p1.y);
-    const cmPerPx = cal.lenCm / dpx;
+    const mmPerPx = cal.lenMm / dpx;
     const cx0 = shots.reduce((s,p)=>s+p.x,0)/shots.length;
     const cy0 = shots.reduce((s,p)=>s+p.y,0)/shots.length;
-    const radii_cm = shots.map(s => Math.hypot(s.x - cx0, s.y - cy0) * cmPerPx);
-    const meanR = radii_cm.reduce((s,r)=>s+r,0) / radii_cm.length;
+    const radii_mm = shots.map(s => Math.hypot(s.x - cx0, s.y - cy0) * mmPerPx);
+    const meanR = radii_mm.reduce((s,r)=>s+r,0) / radii_mm.length;
     // ES = max pairwise distance
     let es = 0;
     for (let i = 0; i < shots.length; i++) for (let j = i+1; j < shots.length; j++) {
-      const dd = Math.hypot(shots[i].x - shots[j].x, shots[i].y - shots[j].y) * cmPerPx;
+      const dd = Math.hypot(shots[i].x - shots[j].x, shots[i].y - shots[j].y) * mmPerPx;
       if (dd > es) es = dd;
     }
-    const moaFactor = (cm) => (cm * 10) / dist_m / (2.908882); // 1 MOA = 2.908882 cm at 100m → cm/m / 2.908... wait
-    // 1 MOA ≈ 2.908 см на 100м → на расстоянии R(м) → 2.908 * R/100 см/MOA
-    const moaPerCm = 100 / (2.908882 * dist_m);
-    const milPerCm = 1000 / (dist_m * 100); // 1 mil = R/1000 м = R*100/1000 см → cm to mil: cm * (1/((R/1000)*100)) = cm*10/R
+    const milPerMm = 1 / (dist_m); // 1 mil = R/1000 м = R мм на дистанции R(м) → мм в mil: мм / R(м)
     stats.appendChild(el('div', { class: 'k' }, 'N'));
     stats.appendChild(el('div', { class: 'v' }, String(shots.length)));
     stats.appendChild(el('div', { class: 'k' }, 'Mean Radius'));
-    stats.appendChild(el('div', { class: 'v' }, fmt(meanR,2) + ' см · ' + fmt(meanR*moaPerCm,2) + ' MOA · ' + fmt(meanR*milPerCm,2) + ' mil'));
+    stats.appendChild(el('div', { class: 'v' }, fmt(meanR,1) + ' мм · ' + fmt(meanR*milPerMm,2) + ' mil'));
     stats.appendChild(el('div', { class: 'k' }, 'Extreme Spread'));
-    stats.appendChild(el('div', { class: 'v' }, fmt(es,2) + ' см · ' + fmt(es*moaPerCm,2) + ' MOA · ' + fmt(es*milPerCm,2) + ' mil'));
+    stats.appendChild(el('div', { class: 'v' }, fmt(es,1) + ' мм · ' + fmt(es*milPerMm,2) + ' mil'));
     stats.appendChild(el('div', { class: 'k' }, 'Дистанция'));
     stats.appendChild(el('div', { class: 'v' }, dist_m + ' м'));
   }
@@ -5123,7 +5095,7 @@ route('/group-analyzer', async () => {
         cnv.width = w; cnv.height = img.naturalHeight * sc;
         displayScale = sc;
         imgEl = img;
-        cal = { p1: null, p2: null, lenCm: cal.lenCm };
+        cal = { p1: null, p2: null, lenMm: cal.lenMm };
         shots.length = 0;
         mode = 'cal1';
         toast('Тапни первую калибровочную точку');
@@ -5133,9 +5105,9 @@ route('/group-analyzer', async () => {
     } catch (e) { toast('Ошибка: ' + e.message); }
   }}, '📷 Фото'));
   controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
-    const v = prompt('Длина калибровочного отрезка, см', cal.lenCm);
+    const v = prompt('Длина калибровочного отрезка, мм', cal.lenMm);
     const n = parseFloat(v);
-    if (isFinite(n) && n > 0) { cal.lenCm = n; refreshStats(); toast('Длина: ' + n + ' см'); }
+    if (isFinite(n) && n > 0) { cal.lenMm = n; refreshStats(); toast('Длина: ' + n + ' мм'); }
   }}, '📏 Длина отрезка'));
   controls.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => {
     const v = prompt('Дистанция стрельбы, м', dist_m);

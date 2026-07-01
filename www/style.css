@@ -524,6 +524,7 @@ label { text-align: center; }
   font-size: 0.32em; color: var(--accent-2);
   margin-left: 2px; letter-spacing: 1px;
 }
+.solution-card .axis .sub-val:empty { display: none; }
 .solution-card .axis .sub-val {
   font-size: 11px; color: var(--muted); margin-top: 4px;
   font-variant-numeric: tabular-nums;
