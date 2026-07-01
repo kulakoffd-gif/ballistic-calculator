@@ -398,6 +398,14 @@ function readForm(form) {
   return data;
 }
 
+// UTF-8-safe base64 (для кириллицы в названиях профилей при QR-шеринге).
+function b64EncodeUnicode(str) {
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+}
+function b64DecodeUnicode(str) {
+  return decodeURIComponent(atob(str).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+}
+
 // ============== prefs ==============
 function loadPrefs() { try { return JSON.parse(localStorage.getItem('prefs') || '{}'); } catch { return {}; } }
 function savePrefs(p) { localStorage.setItem('prefs', JSON.stringify(p)); }
@@ -2718,6 +2726,41 @@ route('/profiles', async () => {
   view.appendChild(comp);
 });
 
+// Импорт профиля по QR/ссылке: телефон сканирует QR камерой → открывает эту ссылку →
+// показывает превью → «Импортировать» создаёт новые оружие+патрон+профиль локально.
+route('/profile-import', async ({}, query) => {
+  setHeader({ title: 'Импорт профиля' });
+  const raw = query && query.data;
+  if (!raw) { view.appendChild(el('div', { class: 'card' }, 'Нет данных для импорта.')); return; }
+  let payload;
+  try { payload = JSON.parse(b64DecodeUnicode(raw)); }
+  catch { view.appendChild(el('div', { class: 'card' }, 'Не удалось прочитать данные профиля — ссылка повреждена.')); return; }
+  const w = payload.weapon || {}, c = payload.cartridge || {};
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('h2', {}, '📥 Импорт профиля'));
+  card.appendChild(el('div', { class: 'muted', style: 'font-size:13px;margin-bottom:8px' }, payload.name || 'Без названия'));
+  const kv = el('div', { class: 'kv', style: 'font-size:13px' });
+  const push = (k, v) => { if (v == null || v === '') return; kv.appendChild(el('div', { class: 'k' }, k)); kv.appendChild(el('div', { class: 'v' }, String(v))); };
+  push('BC · модель', c.bc != null ? `${c.bc} ${c.dragModel || 'G1'}` : null);
+  push('Масса', c.bulletMass_gr != null ? c.bulletMass_gr + ' gr' : null);
+  push('V₀', c.v0 != null ? c.v0 + ' м/с' : null);
+  push('Высота прицела', w.sightHeight_mm != null ? w.sightHeight_mm + ' мм' : null);
+  push('Пристрелка', w.zeroDistance != null ? w.zeroDistance + ' м' : null);
+  push('Твист', w.twist_in != null ? w.twist_in + '″' : null);
+  card.appendChild(kv);
+  card.appendChild(el('button', { type: 'button', class: 'btn', style: 'margin-top:12px', onclick: async () => {
+    const savedW = await Store.put('weapons', { name: payload.name, ...w });
+    const savedC = await Store.put('cartridges', { name: payload.name, ...c });
+    const savedP = await Store.put('profiles', { name: payload.name, weaponId: savedW.id, cartridgeId: savedC.id });
+    localStorage.setItem('activeProfileId', savedP.id);
+    localStorage.setItem('activeWeaponId', savedW.id);
+    localStorage.setItem('activeCartridgeId', savedC.id);
+    toast('Профиль импортирован и активен');
+    location.hash = '#/profiles';
+  } }, '✓ Импортировать и сделать активным'));
+  view.appendChild(card);
+});
+
 // Единый профиль — ОДИН экран (как в AB): Bullet Data + Gun Data + Scope редактируются
 // прямо здесь, без ухода на отдельные страницы «Оружие»/«Патроны». Селекторы позволяют
 // делить одно оружие между несколькими патронами (база + сдвиг — см. HANDOFF.md).
@@ -2802,6 +2845,34 @@ route('/profile/:id', async ({ id }, query) => {
   if (curWId) advRow.appendChild(el('a', { class: 'btn ghost', href: '#/weapon/' + curWId }, '✎ Доп. настройки оружия (CBA)'));
   if (curCId) advRow.appendChild(el('a', { class: 'btn ghost', href: '#/cartridge/' + curCId }, '✎ Доп. настройки патрона (хроно, truing…)'));
   if (advRow.children.length) f.appendChild(advRow);
+
+  // === QR-шеринг профиля (как в AB) — только для уже сохранённого профиля ===
+  if (!isNew && p.weaponId && p.cartridgeId) {
+    f.appendChild(el('button', { type: 'button', class: 'btn outline', style: 'margin-top:8px', onclick: () => {
+      const w = weapons.find(x => x.id === p.weaponId) || {};
+      const c = cartridges.find(x => x.id === p.cartridgeId) || {};
+      const payload = {
+        v: 1, name: p.name,
+        weapon: { sightHeight_mm: w.sightHeight_mm, zeroDistance: w.zeroDistance, twist_in: w.twist_in, twistRight: w.twistRight, ssfElevation: w.ssfElevation, ssfWindage: w.ssfWindage },
+        cartridge: { bc: c.bc, dragModel: c.dragModel, v0: c.v0, bulletMass_gr: c.bulletMass_gr, bulletLength_in: c.bulletLength_in, caliber_in: c.caliber_in },
+      };
+      const b64 = b64EncodeUnicode(JSON.stringify(payload));
+      const shareUrl = `${location.origin}${location.pathname}#/profile-import?data=${encodeURIComponent(b64)}`;
+      openSheet((sheet, close) => {
+        sheet.appendChild(el('h3', {}, '📤 Поделиться профилем'));
+        sheet.appendChild(el('div', { class: 'sub' }, 'Отсканируй QR камерой телефона (откроется ссылка-импорт) или скопируй ссылку.'));
+        sheet.appendChild(el('img', { src: `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(shareUrl)}`,
+          style: 'display:block;margin:12px auto;border-radius:8px;background:#fff;padding:8px', width: 220, height: 220,
+          alt: 'QR-код профиля' }));
+        sheet.appendChild(el('div', { class: 'muted', style: 'font-size:11px;text-align:center' }, '(нужен интернет — картинка QR генерируется внешним сервисом)'));
+        sheet.appendChild(el('button', { type: 'button', class: 'btn', style: 'margin-top:10px', onclick: async () => {
+          try { await navigator.clipboard.writeText(shareUrl); toast('Ссылка скопирована'); }
+          catch { toast('Не удалось скопировать — выдели вручную'); }
+        } }, '📋 Скопировать ссылку'));
+        sheet.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:6px', onclick: close }, 'Закрыть'));
+      });
+    } }, '📤 Поделиться профилем (QR)'));
+  }
 
   f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить и сделать активным'));
   if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
@@ -3292,6 +3363,12 @@ const BULLET_PRESETS = [
   { name: 'Hornady ELD-M 178', cal: '.308', caliber_in: 0.308, mass_gr: 178, len_in: 1.355, bcG7: 0.243, bcG1: 0.500 },
   { name: 'Hornady ELD-M 208', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.493, bcG7: 0.315, bcG1: 0.648 },
   { name: 'Lapua Scenar 167', cal: '.308', caliber_in: 0.308, mass_gr: 167, len_in: 1.236, bcG7: 0.222, bcG1: 0.470 },
+  // добавлено из офиц. справочной таблицы bergerbullets.com/information/lines-and-designs/bullet-reference-charts (проверено)
+  { name: 'Berger 155.5 FULLBORE Target', cal: '.308', caliber_in: 0.308, mass_gr: 155.5, len_in: 1.226, bcG7: 0.242, bcG1: 0.473 },
+  { name: 'Berger 168 VLD Target', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.251, bcG7: 0.260, bcG1: 0.507 },
+  { name: 'Berger 175 OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.261, bcG7: 0.263, bcG1: 0.512 },
+  { name: 'Berger 185 Juggernaut OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 185, len_in: 1.355, bcG7: 0.283, bcG1: 0.552 },
+  { name: 'Berger 208 LR Hybrid Target', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.575, bcG7: 0.354, bcG1: 0.689 },
   // .338
   { name: 'Berger 300 Hybrid', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.823, bcG7: 0.418, bcG1: 0.821 },
   { name: 'Sierra MK 300 HPBT', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.795, bcG7: 0.385, bcG1: 0.768 },
