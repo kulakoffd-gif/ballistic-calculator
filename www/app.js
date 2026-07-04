@@ -3355,8 +3355,9 @@ const BULLET_PRESETS = [
   { name: 'Sierra MK 183 HPBT', cal: '7mm', caliber_in: 0.284, mass_gr: 183, len_in: 1.555, bcG7: 0.343, bcG1: 0.700 },
   { name: 'Hornady ELD-M 180', cal: '7mm', caliber_in: 0.284, mass_gr: 180, len_in: 1.541, bcG7: 0.359, bcG1: 0.712 },
   // .308 (7.62)
-  { name: 'Berger 200.20X Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 200.2, len_in: 1.561, bcG7: 0.328, bcG1: 0.640 },
-  { name: 'Berger 215 Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 215, len_in: 1.560, bcG7: 0.345, bcG1: 0.691 },
+  // len_in/bcG7 исправлены по офиц. таблице bergerbullets.com (проверено WebFetch) — были неверны
+  { name: 'Berger 200.20X Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 200.2, len_in: 1.508, bcG7: 0.328, bcG1: 0.640 },
+  { name: 'Berger 215 Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 215, len_in: 1.598, bcG7: 0.354, bcG1: 0.691 },
   { name: 'Sierra MK 175 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.240, bcG7: 0.243, bcG1: 0.505 },
   { name: 'Sierra MK 168 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.215, bcG7: 0.218, bcG1: 0.462 },
   { name: 'Sierra MK 220 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 220, len_in: 1.470, bcG7: 0.310, bcG1: 0.629 },
