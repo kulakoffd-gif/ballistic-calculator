@@ -5445,12 +5445,12 @@ route('/compare', async () => {
 
 // ============== PRS STAGES (Wave 4.1) ==============
 route('/stages', async () => {
-  setHeader({ title: 'PRS стейджи' });
+  setHeader({ title: 'Брифинг упражнения' });
   const items = await Store.getAll('stages') ?? [];
-  if (!items.length) view.appendChild(el('div', { class: 'banner' }, 'Стейджей нет.'));
+  if (!items.length) view.appendChild(el('div', { class: 'banner' }, 'Упражнений нет.'));
   for (const s of items) {
     view.appendChild(el('a', { class: 'list-item', href: '#/stage/' + s.id },
-      el('div', { class: 'ttl' }, s.name || 'Стейдж'),
+      el('div', { class: 'ttl' }, s.name || 'Упражнение'),
       el('div', { class: 'sub' }, `${(s.targets || []).length} целей · ${s.timeLimit_s || '—'} с`)
     ));
   }
@@ -5460,14 +5460,14 @@ route('/stage/:id', async ({ id }) => {
   const isNew = id === 'new';
   const s = isNew ? { id: Store.uid(), targets: [] } : await Store.get('stages', id);
   if (!s) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
-  setHeader({ title: isNew ? 'Новый стейдж' : (s.name || 'Стейдж') });
+  setHeader({ title: isNew ? 'Новое упражнение' : (s.name || 'Упражнение') });
   const f = el('form', { class: 'card' });
   f.appendChild(textInput('name', 'Название', s.name, { required: true }));
   f.appendChild(el('div', { class: 'row' },
     numInput('timeLimit_s', 'Лимит времени, с', s.timeLimit_s ?? 90),
     numInput('roundCount', 'Патронов', s.roundCount ?? 10)
   ));
-  f.appendChild(el('label', { for: 'description' }, 'Описание стейджа'));
+  f.appendChild(el('label', { for: 'description' }, 'Описание упражнения'));
   f.appendChild(el('textarea', { id: 'description', name: 'description' }, s.description || ''));
   f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Цели'));
