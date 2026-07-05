@@ -2911,7 +2911,7 @@ route('/profile/:id', async ({ id }, query) => {
 // Берёт активный профиль + ветер/атмосферу с главного экрана, для каждой цели
 // пересчитывает угол ветра под её азимут и выдаёт поправки. Вывод — таблица.
 route('/quick-targets', async () => {
-  setHeader({ title: 'Цели (брифинг)' });
+  setHeader({ title: 'Target Card' });
   const weapons = await Store.getAll('weapons');
   const cartridges = await Store.getAll('cartridges');
   const w = weapons.find(x => x.id === localStorage.getItem('activeWeaponId'));
