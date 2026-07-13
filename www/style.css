@@ -109,6 +109,11 @@ body.drawer-open { overflow: hidden; height: 100dvh; }
   display: flex; align-items: center; gap: 12px;
 }
 .drawer a:active, .drawer button.nav:active { background: var(--panel-2); color: var(--accent); }
+/* подраздел («Оружие»/«Патроны»/«Сетки прицелов» — вложены в «Профили») */
+.drawer a.drawer-sub {
+  padding: 10px 14px 10px 30px; font-size: 14px; color: var(--muted);
+}
+.drawer a.drawer-sub::before { content: '—'; margin-right: 2px; opacity: .6; }
 
 /* ===== cards / tiles ===== */
 .card {
