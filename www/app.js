@@ -4532,7 +4532,7 @@ route('/moving-target', async () => {
     resultCard.appendChild(el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'Период оборота'), el('div', { class: 'v' }, fmt(periodSec, 2) + ' с'),
       el('div', { class: 'k' }, 'Лопастей в секунду'), el('div', { class: 'v' }, fmt(bladePassesPerSec, 1)),
-      el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec * 1000, 0) + ' мс'),
+      el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec, 3) + ' с'),
       el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
     ));
 
