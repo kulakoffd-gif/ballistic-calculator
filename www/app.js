@@ -625,6 +625,17 @@ function setHudOn(on) {
 }
 if (isHudOn()) document.body.classList.add('hud-mode');
 
+// ============== Режим яркого солнца ==============
+// Только поля ввода и карточки становятся светлыми с тёмным текстом —
+// шапка/навигация остаются тёмными (минимальный риск разойтись с общим
+// тёмным эталоном AB Quantum, но контраст на солнце заметно выше).
+function isSunModeOn() { return localStorage.getItem('sunMode') === '1'; }
+function setSunModeOn(on) {
+  localStorage.setItem('sunMode', on ? '1' : '0');
+  document.body.classList.toggle('sun-mode', on);
+}
+if (isSunModeOn()) document.body.classList.add('sun-mode');
+
 // ============== Сдвиг от базового патрона (rezeroed?) ==============
 // Сохраняем выбор в sessionStorage по cartridgeId. true = прицел обнулён под этот патрон.
 function getScopeMode(cartId) {
@@ -4673,6 +4684,15 @@ route('/settings', async () => {
   hud.appendChild(el('span', { class: 'lbl' }, 'HUD-режим (увеличенный шрифт результатов)',
     el('span', { class: 'sub' }, 'Для быстрого чтения mil-поправки при ярком солнце')));
   prefsCard.appendChild(hud);
+
+  const sun = el('label', { class: 'checkbox', style: 'padding:12px 0' });
+  const sunCb = el('input', { type: 'checkbox' });
+  sunCb.checked = isSunModeOn();
+  sunCb.addEventListener('change', () => { setSunModeOn(sunCb.checked); toast(sunCb.checked ? 'Режим яркого солнца вкл.' : 'выкл.'); });
+  sun.appendChild(sunCb);
+  sun.appendChild(el('span', { class: 'lbl' }, 'Режим яркого солнца',
+    el('span', { class: 'sub' }, 'Поля ввода и карточки становятся светлыми с тёмным текстом — выше контраст под прямыми лучами')));
+  prefsCard.appendChild(sun);
 
   view.appendChild(prefsCard);
 
