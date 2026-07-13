@@ -4198,6 +4198,8 @@ route('/moving-target', async () => {
   state.bladeSize_m = state.bladeSize_m ?? 0.1;
   state.rotationDir = state.rotationDir || 'cw';   // cw | ccw — куда крутится (вид от стрелка)
   state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
+  state.radiusUnit    = state.radiusUnit    || 'm'; // m | mil — как вводить радиус лопастей
+  state.bladeSizeUnit = state.bladeSizeUnit || 'm'; // m | mil — как вводить диаметр гонга
   function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
 
   // — солвер для TOF —
@@ -4356,6 +4358,27 @@ route('/moving-target', async () => {
   }
 
   // ───────── РОТОР ─────────
+  // поле с переключателем единиц м/mil (mil конвертируется в метры через
+  // дистанцию: м = mil/1000 × дистанция_м) — канонически в state всегда метры.
+  function unitField(unitKey, meterVal, labelBase) {
+    const isMil = state[unitKey] === 'mil';
+    const name = unitKey === 'radiusUnit' ? (isMil ? 'radius_mil' : 'radius_m') : (isMil ? 'bladeSize_mil' : 'bladeSize_m');
+    const val = isMil ? (state.distance_m > 0 ? (meterVal / state.distance_m) * 1000 : 0) : meterVal;
+    const wrap = el('div', {});
+    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px' },
+      el('label', { style: 'margin:0' }, `${labelBase}, ${isMil ? 'mil' : 'м'}`),
+      el('div', { class: 'chips', style: 'margin:0' },
+        el('div', { class: 'chip' + (!isMil ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+          onclick: () => { state[unitKey] = 'm'; save(); } }, 'м'),
+        el('div', { class: 'chip' + (isMil ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+          onclick: () => { state[unitKey] = 'mil'; save(); } }, 'mil')
+      )
+    ));
+    wrap.appendChild(el('input', { name, type: 'number', step: isMil ? '0.05' : '0.01', inputmode: 'decimal', value: fmt(val, 2) }));
+    if (isMil) wrap.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
+      `= ${fmt(meterVal, 2)} м на ${fmt(state.distance_m, 0)} м дистанции`));
+    return wrap;
+  }
   function renderRotor() {
     const hRow = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:14px' });
     hRow.appendChild(el('h2', { style: 'margin:0;flex:1' }, 'Параметры ротора'));
@@ -4369,26 +4392,32 @@ route('/moving-target', async () => {
       'Поражение лопастей вращающейся мишени (например, ротор-таргет на PRS). Расчёт даёт линейную скорость кончика лопасти, lead на «3 часах» и временное окно поражения.'));
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('rpm', 'Обороты, RPM', state.rpm),
-      numInput('radius_m', 'Радиус, м', state.radius_m, { step: '0.05' })
+      unitField('radiusUnit', state.radius_m, 'Радиус лопастей')
     ));
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('blades', 'Кол-во лопастей', state.blades),
-      numInput('bladeSize_m', 'Размер лопасти, м', state.bladeSize_m, { step: '0.01' })
+      unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга')
     ));
     modeCard.appendChild(el('div', { class: 'row' },
       selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
         [{ value: 'cw', label: 'По часовой ↻' }, { value: 'ccw', label: 'Против ↺' }]),
       numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
     ));
-    modeCard.addEventListener('input', () => {
+    function applyModeCardInputs() {
       const d = readForm(modeCard);
+      const radius_m = state.radiusUnit === 'mil'
+        ? (d.radius_mil != null ? (d.radius_mil / 1000) * state.distance_m : state.radius_m)
+        : (d.radius_m ?? state.radius_m);
+      const bladeSize_m = state.bladeSizeUnit === 'mil'
+        ? (d.bladeSize_mil != null ? (d.bladeSize_mil / 1000) * state.distance_m : state.bladeSize_m)
+        : (d.bladeSize_m ?? state.bladeSize_m);
       Object.assign(state, {
-        rpm: d.rpm, radius_m: d.radius_m, blades: d.blades, bladeSize_m: d.bladeSize_m,
+        rpm: d.rpm, radius_m, blades: d.blades, bladeSize_m,
         rotationDir: d.rotationDir, reactionSec: d.reactionSec
       });
       localStorage.setItem('moving:last', JSON.stringify(state));
-      renderResult();
-    });
+    }
+    modeCard.addEventListener('input', () => { applyModeCardInputs(); renderResult(); });
   }
 
   // ───────── РЕЗУЛЬТАТ ─────────
