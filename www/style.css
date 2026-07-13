@@ -12,7 +12,7 @@
   --good-dim: #2a4a35;
   --bad: #f87171;
   --field-bg: #131a24;
-  --field-border: #4a5a70;
+  --field-border: #fff;
   --shadow: 0 8px 24px #0008;
 }
 
@@ -142,14 +142,18 @@ body.drawer-open { overflow: hidden; height: 100dvh; }
 .tile:active { background: var(--panel-2); }
 
 /* ===== forms ===== */
+/* min-height — чтобы поля в одной строке (.row) всегда начинались на одном
+   уровне независимо от того, обёрнута подпись в 1 или 2 строки (например,
+   у полей с переключателем единиц м/mil заголовок длиннее соседних —
+   см. также инлайновый min-height у .field-label-row в unitField()). */
 label {
-  display: block; font-size: 11px; color: var(--muted);
+  display: block; font-size: 11px; color: var(--muted); min-height: 28px;
   letter-spacing: 1.5px; text-transform: uppercase; margin: 12px 0 6px;
 }
 input, select, textarea {
   width: 100%; padding: 13px 14px; font-size: 16px;
   background: var(--field-bg); color: var(--text);
-  border: 1.5px solid var(--field-border); border-radius: 10px;
+  border: 2px solid var(--field-border); border-radius: 10px;
   font-family: inherit;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }

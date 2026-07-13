@@ -4093,12 +4093,13 @@ function openRotorHelpSheet() {
 function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   const NS = 'http://www.w3.org/2000/svg';
   const R = 90;
+  const z = zoom || 1;
   const maxMil = Math.max(4, Math.abs(crossMil) * 1.5, Math.abs(holdMil) * 1.5);
-  const px = (R - 14) / maxMil; // пикселей на 1 mil
+  const px = (R - 14) / maxMil; // SVG-юнитов на 1 mil — не зависит от zoom, позиции всегда верные
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
   svg.setAttribute('class', 'reticle-svg');
-  const widthPx = Math.round(220 * (zoom || 1));
+  const widthPx = Math.round(220 * z);
   // .reticle-svg (общий класс с библиотекой сеток) задаёт max-width:380px —
   // без явного сброса это глушит рост при zoom>~1.7, обойдено ниже. При этом
   // на маленьких экранах ширина не должна вылезать за пределы вьюпорта.
@@ -4106,39 +4107,45 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   svg.style.margin = '6px auto'; svg.style.display = 'block';
   const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
 
-  // горизонтальная и вертикальная линии перекрестия (длинные — на всю сетку)
-  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#8a96a8', 'stroke-width': 1.4 });
-  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#8a96a8', 'stroke-width': 1.4 });
-  // риски через 0.5 mil: целые (1, 2, 3…) — крупные и толще, половинки (0.5, 1.5…) — мелкие
+  // --- сама сетка: чистый белый на чёрном, растёт вместе с zoom (первая
+  // фокальная плоскость — толщина/размер задан в SVG-юнитах и не делится
+  // на z, поэтому при увеличении картинки сетка становится крупнее и
+  // подробнее видна) ---
+  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 1.4 });
+  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 1.4 });
+  // риски через 0.5 mil на ОБЕИХ осях: целые (1, 2, 3…) — крупные и толще,
+  // половинки (0.5, 1.5…) — мельче. Раньше половинки/деления были только на
+  // горизонтальной оси, на вертикальной — только декоративная «ёлочка» без
+  // единого шага; теперь обе оси размечены одинаково.
   for (let m = 0.5; m <= maxMil; m += 0.5) {
     const isMajor = Math.abs(m - Math.round(m)) < 1e-6;
     const p = m * px;
     const halfH = isMajor ? 5.5 : 2.5;
-    const sw = isMajor ? 1.4 : 0.8;
-    const color = isMajor ? '#8a96a8' : '#4a5668';
-    mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: color, 'stroke-width': sw });
-    mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: color, 'stroke-width': sw });
+    const sw = isMajor ? 1.4 : 0.9;
+    mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
+    mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
+    mk('line', { x1: -halfH, y1: p, x2: halfH, y2: p, stroke: '#fff', 'stroke-width': sw });
+    mk('line', { x1: -halfH, y1: -p, x2: halfH, y2: -p, stroke: '#fff', 'stroke-width': sw });
   }
-  // «ёлочка» — короткие горизонтальные штрихи НИЖЕ центра (там, где реально бывают метки)
-  for (let m = 1; m <= Math.ceil(maxMil); m++) {
-    const y = m * px;
-    const w = 10 - m * 0.8; // сужается книзу, как классическая ёлочка
-    mk('line', { x1: -Math.max(w, 3), y1: y, x2: Math.max(w, 3), y2: y, stroke: '#3a4658', 'stroke-width': 1 });
-  }
-  mk('circle', { cx: 0, cy: 0, r: 2, fill: '#8a96a8' });
+  mk('circle', { cx: 0, cy: 0, r: 2, fill: '#fff' });
 
-  // кружок — метка удержания (holdMil отрицательный = ниже центра)
+  // --- метки (куда целиться / где стрелять): размер делим на z, поэтому
+  // рендер-пиксели остаются константными при любом zoom — толстый крест и
+  // круг не «раздуваются» и не перекрывают сетку при увеличении, как в
+  // прицеле с реальной первой фокальной плоскостью для самих делений и
+  // фиксированным размером маркеров сверху ---
+  const m = 1 / z;
+
   const hy = -holdMil * px; // в SVG y растёт вниз, а holdMil отрицателен (ниже) → hy положительный
-  mk('circle', { cx: 0, cy: hy, r: 6, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 });
-  mk('circle', { cx: 0, cy: hy, r: 1.5, fill: '#ff8b3d' });
-  const holdLabel = mk('text', { x: 10, y: hy + 4, fill: '#ff8b3d', 'font-size': 8 });
+  mk('circle', { cx: 0, cy: hy, r: 6 * m, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 * m });
+  mk('circle', { cx: 0, cy: hy, r: 1.5 * m, fill: '#ff8b3d' });
+  const holdLabel = mk('text', { x: 10 * m, y: hy + 4 * m, fill: '#ff8b3d', 'font-size': 8 * m });
   holdLabel.textContent = `цель сюда: ${fmt(holdMil, 2)}`;
 
-  // крестик — точка пересечения на горизонтальной линии
   const cx = crossMil * px;
-  mk('line', { x1: cx - 6, y1: -6, x2: cx + 6, y2: 6, stroke: '#4ade80', 'stroke-width': 2.4, 'stroke-linecap': 'round' });
-  mk('line', { x1: cx - 6, y1: 6, x2: cx + 6, y2: -6, stroke: '#4ade80', 'stroke-width': 2.4, 'stroke-linecap': 'round' });
-  const crossLabel = mk('text', { x: cx, y: -12, fill: '#4ade80', 'font-size': 8, 'text-anchor': 'middle' });
+  mk('line', { x1: cx - 6 * m, y1: -6 * m, x2: cx + 6 * m, y2: 6 * m, stroke: '#4ade80', 'stroke-width': 2.4 * m, 'stroke-linecap': 'round' });
+  mk('line', { x1: cx - 6 * m, y1: 6 * m, x2: cx + 6 * m, y2: -6 * m, stroke: '#4ade80', 'stroke-width': 2.4 * m, 'stroke-linecap': 'round' });
+  const crossLabel = mk('text', { x: cx, y: -12 * m, fill: '#4ade80', 'font-size': 8 * m, 'text-anchor': 'middle' });
   crossLabel.textContent = `огонь: ${fmt(crossMil, 2)}`;
 
   return svg;
@@ -4336,8 +4343,8 @@ route('/moving-target', async () => {
     const name = unitKey === 'radiusUnit' ? (isMil ? 'radius_mil' : 'radius_m') : (isMil ? 'bladeSize_mil' : 'bladeSize_m');
     const val = isMil ? (state.distance_m > 0 ? (meterVal / state.distance_m) * 1000 : 0) : meterVal;
     const wrap = el('div', {});
-    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px' },
-      el('label', { style: 'margin:0' }, `${labelBase}, ${isMil ? 'mil' : 'м'}`),
+    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px;min-height:28px;margin:12px 0 6px' },
+      el('label', { style: 'margin:0;min-height:0' }, `${labelBase}, ${isMil ? 'mil' : 'м'}`),
       el('div', { class: 'chips', style: 'margin:0' },
         el('div', { class: 'chip' + (!isMil ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
           onclick: () => { state[unitKey] = 'm'; save(); } }, 'м'),
@@ -4406,14 +4413,19 @@ route('/moving-target', async () => {
     modeCard.appendChild(el('div', { class: 'banner' },
       'Поражение лопастей вращающейся мишени (например, ротор-таргет на PRS). Расчёт даёт линейную скорость кончика лопасти, lead на «3 часах» и временное окно поражения.'));
     modeCard.appendChild(rpmField());
+    // радиус и диаметр — пара с одинаковой структурой (у обеих есть переключатель
+    // м/mil), чтобы поля были на одном уровне; blades/rotationDir — тоже пара
+    // «простых» полей без переключателя. Раньше «сложное» и «простое» поле
+    // стояли в одной строке — переключатель добавлял высоту заголовка только
+    // одной из колонок, и инпуты visually расходились по высоте.
     modeCard.appendChild(el('div', { class: 'row' },
-      numInput('blades', 'Кол-во лопастей', state.blades),
-      unitField('radiusUnit', state.radius_m, 'Радиус лопастей')
+      unitField('radiusUnit', state.radius_m, 'Радиус лопастей'),
+      unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга')
     ));
     modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:-6px' },
       'Радиус лопастей — от оси вращения до ВНЕШНЕГО края гонга (не до его центра).'));
     modeCard.appendChild(el('div', { class: 'row' },
-      unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга'),
+      numInput('blades', 'Кол-во лопастей', state.blades),
       selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
         [{ value: 'cw', label: 'По часовой ↻' }, { value: 'ccw', label: 'Против часовой ↺' }])
     ));
@@ -4582,7 +4594,6 @@ route('/moving-target', async () => {
         style: 'position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:14px;cursor:pointer;padding:0;line-height:1',
         onclick: () => openSheet((sheet, close) => {
           sheet.appendChild(el('h3', {}, 'Схема сетки (×3)'));
-          sheet.appendChild(el('div', { class: 'sub' }, 'Только для ознакомления'));
           sheet.appendChild(drawRotorReticleDiagram(dx_mil, holdMark, 3));
           sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Закрыть'));
         })
