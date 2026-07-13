@@ -4131,7 +4131,7 @@ function openRotorHelpSheet() {
 // Схема сетки для метода «3 часа» на роторе: кружок = метка удержания (на
 // ёлочке, ниже центра), крестик = точка на горизонтальной линии, где её
 // пересечёт гонг — сигнал к выстрелу.
-function drawRotorReticleDiagram(crossMil, holdMil) {
+function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   const NS = 'http://www.w3.org/2000/svg';
   const R = 90;
   const maxMil = Math.max(4, Math.abs(crossMil) * 1.5, Math.abs(holdMil) * 1.5);
@@ -4139,17 +4139,22 @@ function drawRotorReticleDiagram(crossMil, holdMil) {
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
   svg.setAttribute('class', 'reticle-svg');
-  svg.style.width = '220px'; svg.style.margin = '6px auto'; svg.style.display = 'block';
+  const widthPx = Math.round(220 * (zoom || 1));
+  svg.style.width = widthPx + 'px'; svg.style.margin = '6px auto'; svg.style.display = 'block';
   const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
 
   // горизонтальная и вертикальная линии перекрестия (длинные — на всю сетку)
   mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#8a96a8', 'stroke-width': 1.4 });
   mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#8a96a8', 'stroke-width': 1.4 });
-  // риски через 1 mil на обеих осях
-  for (let m = 1; m <= maxMil; m++) {
+  // риски через 0.5 mil: целые (1, 2, 3…) — крупные и толще, половинки (0.5, 1.5…) — мелкие
+  for (let m = 0.5; m <= maxMil; m += 0.5) {
+    const isMajor = Math.abs(m - Math.round(m)) < 1e-6;
     const p = m * px;
-    mk('line', { x1: p, y1: -4, x2: p, y2: 4, stroke: '#5a6678', 'stroke-width': 1 });
-    mk('line', { x1: -p, y1: -4, x2: -p, y2: 4, stroke: '#5a6678', 'stroke-width': 1 });
+    const halfH = isMajor ? 5.5 : 2.5;
+    const sw = isMajor ? 1.4 : 0.8;
+    const color = isMajor ? '#8a96a8' : '#4a5668';
+    mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: color, 'stroke-width': sw });
+    mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: color, 'stroke-width': sw });
   }
   // «ёлочка» — короткие горизонтальные штрихи НИЖЕ центра (там, где реально бывают метки)
   for (let m = 1; m <= Math.ceil(maxMil); m++) {
@@ -4203,6 +4208,7 @@ route('/moving-target', async () => {
   state.rpmMode        = state.rpmMode        || 'manual'; // manual | count — как вводить RPM
   state.measureSec     = state.measureSec     ?? 10;  // замер: длительность, с
   state.measuredPasses = state.measuredPasses ?? 8;   // замер: сколько лопастей прошло через точку за это время
+  state.rotorReticleZoom = state.rotorReticleZoom ?? 1; // масштаб схемы сетки (кнопки +/−, не зум страницы)
   function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
 
   // — солвер для TOF —
@@ -4442,6 +4448,8 @@ route('/moving-target', async () => {
       numInput('blades', 'Кол-во лопастей', state.blades),
       unitField('radiusUnit', state.radius_m, 'Радиус лопастей')
     ));
+    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:-6px' },
+      'Радиус лопастей — от оси вращения до ВНЕШНЕГО края гонга (не до его центра).'));
     modeCard.appendChild(el('div', { class: 'row' },
       unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга'),
       selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
@@ -4516,15 +4524,25 @@ route('/moving-target', async () => {
     }
   }
 
-  // ротор — метод «3 часа»: точка прицеливания = точка скрытия/появления
-  // гонга у вала (движение там строго вертикальное). Геометрия цели (период,
-  // окно поражения) не зависит от оружия/патрона и считается всегда; оружие
-  // и патрон нужны только для реальной баллистической поправки по высоте
-  // (докрутки барабанчика) — без них показываем геометрию и просим выбрать
-  // профиль именно для этой части, а не блокируем весь экран.
+  // ротор — метод «3 часа»: точка прицеливания = точка, где гонг касается
+  // вала своим НИЖНИМ краем (визуально резкий, легко ловимый момент — а не
+  // абстрактная «центр гонга ровно на оси», которая физически не наблюдаема).
+  // radius_m вводится до ВНЕШНЕГО края гонга (см. пометку в UI), поэтому
+  // центр гонга находится на радиусе R_center = radius_m − r_gong; в момент
+  // касания нижним краем центр гонга выше оси ровно на r_gong, то есть
+  // опорная точка сдвинута от оси на угол thetaRef = asin(r_gong/R_center),
+  // а не на 0, как в первой версии расчёта (там это давало ошибку порядка
+  // десятых mil — см. WORKLOG). Геометрия цели (период, окно поражения) не
+  // зависит от оружия/патрона и считается всегда; оружие и патрон нужны
+  // только для реальной баллистической поправки по высоте (докрутки
+  // барабанчика) — без них показываем геометрию и просим выбрать профиль
+  // именно для этой части, а не блокируем весь экран.
   function renderRotorResult(row) {
     const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
-    const v_tan = omega * state.radius_m; // м/с по кончику (одинакова везде на круге)
+    const r_gong = (state.bladeSize_m || 0) / 2;   // радиус гонга (bladeSize_m — диаметр)
+    const R_center = Math.max(state.radius_m - r_gong, 0.001); // радиус до ЦЕНТРА гонга
+    const thetaRef = Math.asin(Math.min(1, r_gong / R_center)); // угол опорной точки от оси
+    const v_tan = omega * R_center; // м/с — скорость ЦЕНТРА гонга
     const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
     const periodSec = state.rpm > 0 ? 60 / state.rpm : 0;
     const bladePassesPerSec = state.blades * (state.rpm / 60);
@@ -4544,10 +4562,10 @@ route('/moving-target', async () => {
 
     const tof = row.tof_s;
     const tLead = tof + (state.reactionSec || 0);
-    const phi = omega * tLead; // рад, угол опережения
-    const dxBase = state.radius_m * (Math.cos(phi) - 1); // всегда ≤0
+    const phi = omega * tLead; // рад, угол опережения от опорной точки (касание нижним краем)
+    const dxBase = R_center * (Math.cos(thetaRef + phi) - Math.cos(thetaRef)); // всегда ≤0
     const dx_m = state.rotationDir === 'ccw' ? -dxBase : dxBase;
-    const dy_m = state.radius_m * Math.sin(phi);
+    const dy_m = R_center * Math.sin(thetaRef + phi) - r_gong;
     const dx_mil = state.distance_m > 0 ? (dx_m / state.distance_m) * 1000 : 0;
     const dy_mil = state.distance_m > 0 ? (dy_m / state.distance_m) * 1000 : 0;
 
@@ -4574,12 +4592,20 @@ route('/moving-target', async () => {
     ));
     resultCard.appendChild(el('div', { class: 'banner accent' },
       `1) Докрути ${fmt(totalDial, 2)} mil (обычная поправка ${fmt(dropMil, 2)} + доп. ${fmt(dy_mil, 2)} mil сверху). ` +
-      `2) Держи метку «${fmt(holdMark, 2)}» на ёлочке в точке скрытия/появления гонга у вала. ` +
+      `2) Держи метку «${fmt(holdMark, 2)}» на ёлочке в точке у вала, где гонг ТОЛЬКО НАЧИНАЕТ касаться вала своим нижним краем (первый момент касания — гонг ещё виден полностью). ` +
       `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'левее' : 'правее'} вертикали.`));
 
     // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
+    // масштаб схемы — кнопками (не зум страницы), чтобы не увеличивать весь экран целиком.
     resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
-    resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark));
+    resultCard.appendChild(el('div', { style: 'display:flex;justify-content:center;align-items:center;gap:10px;margin-top:4px' },
+      el('button', { type: 'button', class: 'btn ghost', style: 'width:36px;height:32px;padding:0',
+        onclick: () => { state.rotorReticleZoom = Math.max(0.5, (state.rotorReticleZoom || 1) - 0.25); save(); } }, '−'),
+      el('div', { class: 'muted', style: 'font-size:11px;min-width:40px;text-align:center' }, `${Math.round((state.rotorReticleZoom || 1) * 100)}%`),
+      el('button', { type: 'button', class: 'btn ghost', style: 'width:36px;height:32px;padding:0',
+        onclick: () => { state.rotorReticleZoom = Math.min(3, (state.rotorReticleZoom || 1) + 0.25); save(); } }, '+')
+    ));
+    resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark, state.rotorReticleZoom));
 
     resultCard.appendChild(el('div', { class: 'banner' },
       'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
