@@ -11,7 +11,8 @@
   --good: #4ade80;
   --good-dim: #2a4a35;
   --bad: #f87171;
-  --field-bg: #0c1118;
+  --field-bg: #131a24;
+  --field-border: #4a5a70;
   --shadow: 0 8px 24px #0008;
 }
 
@@ -148,7 +149,7 @@ label {
 input, select, textarea {
   width: 100%; padding: 13px 14px; font-size: 16px;
   background: var(--field-bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 10px;
+  border: 1.5px solid var(--field-border); border-radius: 10px;
   font-family: inherit;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
