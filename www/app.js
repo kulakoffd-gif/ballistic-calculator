@@ -4539,14 +4539,20 @@ route('/moving-target', async () => {
         onclick: () => openRotorHelpSheet()
       }, 'i')
     ));
-    resultCard.appendChild(el('div', { class: 'info-card' },
-      el('div', { class: 'label' }, 'Базовая поправка по высоте (с учётом дистанции)'),
-      el('div', { class: 'clock-display' }, fmt(dropMil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
-      el('div', { class: 'muted center' }, `реальный расчёт солвера на ${state.distance_m} м — обычная поправка, как для неподвижной цели`)
+    resultCard.appendChild(el('div', { class: 'row' },
+      el('div', { class: 'info-card' },
+        el('div', { class: 'label' }, 'Поправка на дистанцию'),
+        el('div', { class: 'clock-display', style: 'font-size:26px' }, fmt(dropMil, 2), el('span', { style: 'font-size:12px;color:var(--muted)' }, 'mil')),
+        el('div', { class: 'muted center', style: 'font-size:11px' }, `солвер, ${state.distance_m} м`)
+      ),
+      el('div', { class: 'info-card' },
+        el('div', { class: 'label' }, 'Поправка на вращение'),
+        el('div', { class: 'clock-display', style: 'font-size:26px' }, `+${fmt(dy_mil, 2)}`, el('span', { style: 'font-size:12px;color:var(--muted)' }, 'mil')),
+        el('div', { class: 'muted center', style: 'font-size:11px' }, 'упреждение, метод «3 часа»')
+      )
     ));
     resultCard.appendChild(el('div', { class: 'kv' },
-      el('div', { class: 'k' }, 'Доп. смещение (метод «3 часа»)'), el('div', { class: 'v accent' }, `+${fmt(dy_mil, 2)} mil`),
-      el('div', { class: 'k' }, 'Итоговая накрутка'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
+      el('div', { class: 'k' }, 'Итоговая накрутка (дистанция + вращение)'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
       el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(holdMark, 2)} mil от центра`),
       el('div', { class: 'k' }, 'Пересечение линии — от вертикали'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'влево' : 'вправо'}`)
     ));
