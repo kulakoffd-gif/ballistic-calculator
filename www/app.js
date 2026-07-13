@@ -4036,9 +4036,16 @@ function renderReticleViewer(reticle, rows) {
 
   viewport.addEventListener('touchmove', (e) => {
     if (e.touches.length === 2 && pinchStart) {
-      e.preventDefault();
       const [a, b] = [e.touches[0], e.touches[1]];
       const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      // Двупальцевый скролл (трекпад, некоторые Android-жесты) держит
+      // расстояние между касаниями почти постоянным — оба пальца едут
+      // вместе. Настоящий pinch-zoom расстояние явно меняет. Если не
+      // отличать их, ЛЮБОЙ двупальцевый скролл над сеткой блокировался —
+      // preventDefault стоял безусловно, страница «не скроллилась
+      // примерно до половины» (ровно там, где начинается эта картинка).
+      if (Math.abs(dist - pinchStart.dist) < 10) return; // не пинч — пропускаем, пусть страница скроллится
+      e.preventDefault();
       const k = dist / pinchStart.dist;
       const newZ = Math.max(0.5, Math.min(pinchStart.zoom * k, 6));
       const rect = viewport.getBoundingClientRect();
