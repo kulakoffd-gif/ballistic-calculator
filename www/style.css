@@ -151,9 +151,9 @@ label {
   letter-spacing: 1.5px; text-transform: uppercase; margin: 12px 0 6px;
 }
 input, select, textarea {
-  width: 100%; padding: 10px 11px; font-size: 16px;
+  width: 100%; padding: 10px 11px; font-size: 16px; font-weight: 700;
   background: var(--field-bg); color: var(--text);
-  border: 2px solid var(--field-border); border-radius: 10px;
+  border: 1px solid var(--field-border); border-radius: 10px;
   font-family: inherit;
 }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
@@ -165,7 +165,7 @@ input, select, textarea {
 }
 input[type="number"] {
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: 1px;
 }
 input::placeholder { text-align: center; opacity: 0.5; }
