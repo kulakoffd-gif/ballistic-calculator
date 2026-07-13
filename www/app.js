@@ -4608,20 +4608,13 @@ route('/moving-target', async () => {
 route('/mil-ranging', async () => {
   setHeader({ title: 'Мил-рейнджинг' });
   view.appendChild(el('div', { class: 'card' },
-    el('h2', {}, 'Дистанция по известному размеру цели'),
+    el('h2', {}, 'Расчёт расстояния'),
     el('div', { class: 'banner' },
       'Формула: дистанция = (размер цели, м × 1000) ÷ наблюдаемые mils. Удобно когда нет дальномера.')));
 
   const state = JSON.parse(localStorage.getItem('milRange') || '{}');
   const form = el('form', { class: 'card' });
   form.appendChild(el('label', {}, 'Высота/ширина цели (м)'));
-  const presetChips = el('div', { class: 'chips' });
-  for (const [lbl, v] of [['Ростовая 1.7', 1.7], ['Поясная 1.0', 1.0], ['ИПСК 0.5', 0.5], ['Голова 0.25', 0.25]]) {
-    presetChips.appendChild(el('div', { class: 'chip', onclick: () => {
-      form.targetSize.value = v; form.dispatchEvent(new Event('input', { bubbles: true }));
-    }}, lbl));
-  }
-  form.appendChild(presetChips);
   form.appendChild(el('input', { id: 'targetSize', name: 'targetSize', type: 'number', step: '0.01',
     value: state.targetSize ?? 1.7, inputmode: 'decimal' }));
   form.appendChild(el('div', { class: 'row' },
@@ -4653,32 +4646,6 @@ route('/mil-ranging', async () => {
   form.addEventListener('input', recalc);
   recalc();
   view.appendChild(form);
-
-  // обратный режим: размер цели + дистанция → ожидаемые mils
-  view.appendChild(el('div', { class: 'card' },
-    el('h2', {}, 'Обратный расчёт'),
-    el('div', { class: 'banner' }, 'Размер цели + дистанция → ожидаемые mils для прицеливания/ранжирования.'),
-    (() => {
-      const f2 = el('form');
-      f2.appendChild(el('div', { class: 'row' },
-        numInput('sz', 'Размер цели, м', null, { step: '0.01' }),
-        numInput('dist', 'Дистанция, м', null)
-      ));
-      const out2 = el('div', { class: 'info-card' });
-      f2.appendChild(out2);
-      f2.addEventListener('input', () => {
-        const d = readForm(f2);
-        if (!d.sz || !d.dist) { out2.innerHTML = ''; return; }
-        const mils = (d.sz * 1000) / d.dist;
-        const moa = mils * 3.438;
-        out2.innerHTML = '';
-        out2.appendChild(el('div', { class: 'label' }, 'Ожидаемые mils'));
-        out2.appendChild(el('div', { class: 'big-num' }, fmt(mils, 2), el('span', { class: 'unit' }, 'mil')));
-        out2.appendChild(el('div', { class: 'muted center' }, fmt(moa, 1) + ' MOA'));
-      });
-      return f2;
-    })()
-  ));
 });
 
 // ============== SETTINGS ==============
