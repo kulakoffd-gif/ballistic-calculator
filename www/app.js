@@ -4386,12 +4386,9 @@ route('/moving-target', async () => {
   // фиксированную точку) — не нужно ловить «свою» лопасть, чтобы засечь
   // полный оборот, достаточно считать пересечения точки.
   // об/мин = лопастей_прошло × 60 / (кол-во_лопастей × секунд).
-  function rpmCountHintText() {
-    const passes = state.measuredPasses || 0, sec = state.measureSec || 0, blades = state.blades || 0;
-    const rpmCalc = (blades > 0 && sec > 0) ? (passes * 60) / (blades * sec) : 0;
-    const periodCalc = rpmCalc > 0 ? 60 / rpmCalc : 0;
-    return `→ ${fmt(rpmCalc, 2)} RPM · период оборота ${fmt(periodCalc, 2)} с`;
-  }
+  // Расчёт — по явной кнопке «Рассчитать», а не «вслепую» при вводе: после
+  // расчёта режим переключается на «вручную» и посчитанное число видно и
+  // доступно для правки прямо в поле RPM.
   function rpmField() {
     const isCount = state.rpmMode === 'count';
     const wrap = el('div', {});
@@ -4407,15 +4404,25 @@ route('/moving-target', async () => {
     if (!isCount) {
       wrap.appendChild(el('input', { name: 'rpm', type: 'number', step: 'any', inputmode: 'decimal', value: fmt(state.rpm, 2) }));
     } else {
+      const secInput = el('input', { name: 'measureSec', type: 'number', step: '0.1', inputmode: 'decimal', value: fmt(state.measureSec, 1) });
+      const passesInput = el('input', { name: 'measuredPasses', type: 'number', step: '1', inputmode: 'numeric', value: fmt(state.measuredPasses, 0) });
       wrap.appendChild(el('div', { class: 'row', style: 'margin-top:4px' },
-        el('div', {},
-          el('label', { style: 'font-size:11px' }, 'Замер, с'),
-          el('input', { name: 'measureSec', type: 'number', step: '0.1', inputmode: 'decimal', value: fmt(state.measureSec, 1) })),
-        el('div', {},
-          el('label', { style: 'font-size:11px' }, 'Лопастей прошло через точку'),
-          el('input', { name: 'measuredPasses', type: 'number', step: '1', inputmode: 'numeric', value: fmt(state.measuredPasses, 0) }))
+        el('div', {}, el('label', { style: 'font-size:11px' }, 'Замер, с'), secInput),
+        el('div', {}, el('label', { style: 'font-size:11px' }, 'Лопастей прошло через точку'), passesInput)
       ));
-      wrap.appendChild(el('div', { class: 'muted', id: 'rpm-count-hint', style: 'font-size:11px;margin-top:2px' }, rpmCountHintText()));
+      wrap.appendChild(el('button', {
+        type: 'button', class: 'btn', style: 'margin-top:8px;width:100%',
+        onclick: () => {
+          const blades = state.blades || 0;
+          const sec = parseFloat(secInput.value) || 0;
+          const passes = parseFloat(passesInput.value) || 0;
+          state.rpm = (blades > 0 && sec > 0) ? (passes * 60) / (blades * sec) : state.rpm;
+          state.measureSec = sec;
+          state.measuredPasses = passes;
+          state.rpmMode = 'manual';
+          save();
+        }
+      }, 'Рассчитать RPM'));
     }
     return wrap;
   }
@@ -4452,22 +4459,18 @@ route('/moving-target', async () => {
         ? (d.bladeSize_mil != null ? (d.bladeSize_mil / 1000) * state.distance_m : state.bladeSize_m)
         : (d.bladeSize_m ?? state.bladeSize_m);
       const blades = d.blades ?? state.blades;
-      let rpm, measureSec = state.measureSec, measuredPasses = state.measuredPasses;
-      if (state.rpmMode === 'count') {
-        measureSec = d.measureSec ?? state.measureSec;
-        measuredPasses = d.measuredPasses ?? state.measuredPasses;
-        rpm = (blades > 0 && measureSec > 0) ? (measuredPasses * 60) / (blades * measureSec) : state.rpm;
-      } else {
-        rpm = d.rpm ?? state.rpm;
-      }
+      // в режиме «замер» RPM выставляется только кнопкой «Рассчитать» (см.
+      // rpmField), не на каждое нажатие клавиши — здесь просто сохраняем
+      // введённые сек/лопастей, чтобы не потерялись при переключении экрана.
+      const rpm = state.rpmMode === 'count' ? state.rpm : (d.rpm ?? state.rpm);
+      const measureSec = state.rpmMode === 'count' ? (d.measureSec ?? state.measureSec) : state.measureSec;
+      const measuredPasses = state.rpmMode === 'count' ? (d.measuredPasses ?? state.measuredPasses) : state.measuredPasses;
       Object.assign(state, {
         rpm, radius_m, blades, bladeSize_m,
         rotationDir: d.rotationDir, reactionSec: d.reactionSec,
         measureSec, measuredPasses
       });
       localStorage.setItem('moving:last', JSON.stringify(state));
-      const hint = modeCard.querySelector('#rpm-count-hint');
-      if (hint) hint.textContent = rpmCountHintText();
     }
     modeCard.addEventListener('input', () => { applyModeCardInputs(); renderResult(); });
   }
@@ -4476,6 +4479,9 @@ route('/moving-target', async () => {
   function renderResult() {
     resultCard.innerHTML = '';
     const row = computeRow();
+
+    if (state.mode === 'rotor') { renderRotorResult(row); return; }
+
     if (!row) {
       resultCard.appendChild(el('div', { class: 'banner' }, 'Выбери оружие и патрон.'));
       return;
@@ -4486,7 +4492,7 @@ route('/moving-target', async () => {
       el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
     ));
 
-    if (state.mode === 'linear') {
+    {
       let vmps = 0;
       if (state.speedMode === 'mps') vmps = state.speed_mps || 0;
       else vmps = (state.speed_mils || 0) * state.distance_m / 1000;
@@ -4507,59 +4513,76 @@ route('/moving-target', async () => {
       ));
       resultCard.appendChild(el('div', { class: 'banner accent' },
         `Прицеливайся ${fmt(Math.abs(lead_mil), 2)} mil ${lead_mil >= 0 ? 'вперёд по направлению движения' : 'назад'} от цели. Удерживай при стрельбе (sustained lead) или стреляй когда цель «догонит» отметку (trapping).`));
-    } else {
-      // ротор — метод «3 часа»: точка прицеливания = точка скрытия/появления
-      // гонга у вала (движение там строго вертикальное). Считаем НЕ упреждение
-      // в воздухе, а точку на сетке + реальную баллистическую поправку.
-      const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
-      const v_tan = omega * state.radius_m; // м/с по кончику (одинакова везде на круге)
-      const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
-      const periodSec = state.rpm > 0 ? 60 / state.rpm : 0;
-      const bladePassesPerSec = state.blades * (state.rpm / 60);
-
-      const tLead = tof + (state.reactionSec || 0);
-      const phi = omega * tLead; // рад, угол опережения
-      const dxBase = state.radius_m * (Math.cos(phi) - 1); // всегда ≤0
-      const dx_m = state.rotationDir === 'ccw' ? -dxBase : dxBase;
-      const dy_m = state.radius_m * Math.sin(phi);
-      const dx_mil = state.distance_m > 0 ? (dx_m / state.distance_m) * 1000 : 0;
-      const dy_mil = state.distance_m > 0 ? (dy_m / state.distance_m) * 1000 : 0;
-
-      const dropMil = row.drop_mil || 0;           // реальная поправка по высоте на дистанцию (солвер)
-      const totalDial = dropMil + dy_mil;           // итоговая накрутка на барабанчике
-      const holdMark = -dy_mil;                     // метка на ёлочке (ниже центра)
-      const clicksExtra = dy_mil / 0.1;              // доп. клики сверх обычной поправки (0.1 mil/клик)
-
-      resultCard.appendChild(el('hr'));
-      resultCard.appendChild(el('div', { class: 'info-card' },
-        el('div', { class: 'label' }, 'Базовая поправка по высоте (с учётом дистанции)'),
-        el('div', { class: 'clock-display' }, fmt(dropMil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
-        el('div', { class: 'muted center' }, `реальный расчёт солвера на ${state.distance_m} м — обычная поправка, как для неподвижной цели`)
-      ));
-      resultCard.appendChild(el('div', { class: 'kv' },
-        el('div', { class: 'k' }, 'Доп. смещение (метод «3 часа»)'), el('div', { class: 'v accent' }, `+${fmt(dy_mil, 2)} mil`),
-        el('div', { class: 'k' }, 'Итоговая накрутка'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
-        el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(holdMark, 2)} mil от центра`),
-        el('div', { class: 'k' }, 'Пересечение линии — от вертикали'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'влево' : 'вправо'}`)
-      ));
-      resultCard.appendChild(el('div', { class: 'kv' },
-        el('div', { class: 'k' }, 'Период оборота'), el('div', { class: 'v' }, fmt(periodSec, 2) + ' с'),
-        el('div', { class: 'k' }, 'Лопастей в секунду'), el('div', { class: 'v' }, fmt(bladePassesPerSec, 1)),
-        el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec * 1000, 0) + ' мс'),
-        el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 2) + ' с')
-      ));
-      resultCard.appendChild(el('div', { class: 'banner accent' },
-        `1) Докрути ${fmt(totalDial, 2)} mil (обычная поправка ${fmt(dropMil, 2)} + доп. ${fmt(dy_mil, 2)} mil сверху). ` +
-        `2) Держи метку «${fmt(holdMark, 2)}» на ёлочке в точке скрытия/появления гонга у вала. ` +
-        `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'левее' : 'правее'} вертикали.`));
-
-      // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
-      resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
-      resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark));
-
-      resultCard.appendChild(el('div', { class: 'banner' },
-        'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
     }
+  }
+
+  // ротор — метод «3 часа»: точка прицеливания = точка скрытия/появления
+  // гонга у вала (движение там строго вертикальное). Геометрия цели (период,
+  // окно поражения) не зависит от оружия/патрона и считается всегда; оружие
+  // и патрон нужны только для реальной баллистической поправки по высоте
+  // (докрутки барабанчика) — без них показываем геометрию и просим выбрать
+  // профиль именно для этой части, а не блокируем весь экран.
+  function renderRotorResult(row) {
+    const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
+    const v_tan = omega * state.radius_m; // м/с по кончику (одинакова везде на круге)
+    const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
+    const periodSec = state.rpm > 0 ? 60 / state.rpm : 0;
+    const bladePassesPerSec = state.blades * (state.rpm / 60);
+
+    resultCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'Период оборота'), el('div', { class: 'v' }, fmt(periodSec, 2) + ' с'),
+      el('div', { class: 'k' }, 'Лопастей в секунду'), el('div', { class: 'v' }, fmt(bladePassesPerSec, 1)),
+      el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec * 1000, 0) + ' мс'),
+      el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
+    ));
+
+    if (!row) {
+      resultCard.appendChild(el('div', { class: 'banner' },
+        'Это геометрия цели — оружие и патрон для неё не нужны. Чтобы получить точку прицеливания и докрутку барабанчика (нужна реальная баллистическая поправка по высоте), выбери оружие и патрон в «Параметрах выстрела» выше.'));
+      return;
+    }
+
+    const tof = row.tof_s;
+    const tLead = tof + (state.reactionSec || 0);
+    const phi = omega * tLead; // рад, угол опережения
+    const dxBase = state.radius_m * (Math.cos(phi) - 1); // всегда ≤0
+    const dx_m = state.rotationDir === 'ccw' ? -dxBase : dxBase;
+    const dy_m = state.radius_m * Math.sin(phi);
+    const dx_mil = state.distance_m > 0 ? (dx_m / state.distance_m) * 1000 : 0;
+    const dy_mil = state.distance_m > 0 ? (dy_m / state.distance_m) * 1000 : 0;
+
+    const dropMil = row.drop_mil || 0;           // реальная поправка по высоте на дистанцию (солвер)
+    const totalDial = dropMil + dy_mil;           // итоговая накрутка на барабанчике
+    const holdMark = -dy_mil;                     // метка на ёлочке (ниже центра)
+    const clicksExtra = dy_mil / 0.1;              // доп. клики сверх обычной поправки (0.1 mil/клик)
+
+    resultCard.appendChild(el('hr'));
+    resultCard.appendChild(el('div', { class: 'info-card' },
+      el('div', { class: 'label' }, 'Базовая поправка по высоте (с учётом дистанции)'),
+      el('div', { class: 'clock-display' }, fmt(dropMil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
+      el('div', { class: 'muted center' }, `реальный расчёт солвера на ${state.distance_m} м — обычная поправка, как для неподвижной цели`)
+    ));
+    resultCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'Доп. смещение (метод «3 часа»)'), el('div', { class: 'v accent' }, `+${fmt(dy_mil, 2)} mil`),
+      el('div', { class: 'k' }, 'Итоговая накрутка'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
+      el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(holdMark, 2)} mil от центра`),
+      el('div', { class: 'k' }, 'Пересечение линии — от вертикали'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'влево' : 'вправо'}`)
+    ));
+    resultCard.appendChild(el('div', { class: 'kv' },
+      el('div', { class: 'k' }, 'Время полёта пули'), el('div', { class: 'v' }, fmt(tof, 2) + ' с'),
+      el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 2) + ' с')
+    ));
+    resultCard.appendChild(el('div', { class: 'banner accent' },
+      `1) Докрути ${fmt(totalDial, 2)} mil (обычная поправка ${fmt(dropMil, 2)} + доп. ${fmt(dy_mil, 2)} mil сверху). ` +
+      `2) Держи метку «${fmt(holdMark, 2)}» на ёлочке в точке скрытия/появления гонга у вала. ` +
+      `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'левее' : 'правее'} вертикали.`));
+
+    // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
+    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
+    resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark));
+
+    resultCard.appendChild(el('div', { class: 'banner' },
+      'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
   }
 
   render();
