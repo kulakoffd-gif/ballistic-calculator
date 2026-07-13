@@ -3063,7 +3063,7 @@ route('/weapon/:id', async ({ id }) => {
   f.appendChild(selectInput('reticleId', 'Сетка прицела', w.reticleId || '',
     [{ value: '', label: '— не выбрана —' }, ...reticles.map(r => ({ value: r.id, label: r.name }))]));
   if (reticles.length === 0) {
-    f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:-6px' },
+    f.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
       'Создай сетку в разделе «Сетки прицелов»: загрузи фото своей сетки и откалибруй по двум точкам.'));
   }
   // — Sight Scale Factor (калибровка масштаба барабанов, как в AB Ballistic Calibration) —
@@ -4111,8 +4111,8 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   // фокальная плоскость — толщина/размер задан в SVG-юнитах и не делится
   // на z, поэтому при увеличении картинки сетка становится крупнее и
   // подробнее видна) ---
-  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 1.4 });
-  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 1.4 });
+  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 0.7 });
+  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 0.7 });
   // риски через 0.5 mil на ОБЕИХ осях: целые (1, 2, 3…) — крупные и толще,
   // половинки (0.5, 1.5…) — мельче. Раньше половинки/деления были только на
   // горизонтальной оси, на вертикальной — только декоративная «ёлочка» без
@@ -4121,7 +4121,7 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
     const isMajor = Math.abs(m - Math.round(m)) < 1e-6;
     const p = m * px;
     const halfH = isMajor ? 5.5 : 2.5;
-    const sw = isMajor ? 1.4 : 0.9;
+    const sw = isMajor ? 0.7 : 0.45;
     mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
     mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
     mk('line', { x1: -halfH, y1: p, x2: halfH, y2: p, stroke: '#fff', 'stroke-width': sw });
@@ -4422,7 +4422,7 @@ route('/moving-target', async () => {
       unitField('radiusUnit', state.radius_m, 'Радиус лопастей'),
       unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга')
     ));
-    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:-6px' },
+    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px' },
       'Радиус лопастей — от оси вращения до ВНЕШНЕГО края гонга (не до его центра).'));
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('blades', 'Кол-во лопастей', state.blades),
