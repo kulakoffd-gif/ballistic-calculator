@@ -4099,7 +4099,11 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
   svg.setAttribute('class', 'reticle-svg');
   const widthPx = Math.round(220 * (zoom || 1));
-  svg.style.width = widthPx + 'px'; svg.style.margin = '6px auto'; svg.style.display = 'block';
+  // .reticle-svg (общий класс с библиотекой сеток) задаёт max-width:380px —
+  // без явного сброса это глушит рост при zoom>~1.7, обойдено ниже. При этом
+  // на маленьких экранах ширина не должна вылезать за пределы вьюпорта.
+  svg.style.width = `min(${widthPx}px, 92vw)`; svg.style.maxWidth = 'none';
+  svg.style.margin = '6px auto'; svg.style.display = 'block';
   const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
 
   // горизонтальная и вертикальная линии перекрестия (длинные — на всю сетку)
@@ -4167,7 +4171,6 @@ route('/moving-target', async () => {
   state.rpmMode        = state.rpmMode        || 'manual'; // manual | count — как вводить RPM
   state.measureSec     = state.measureSec     ?? 10;  // замер: длительность, с
   state.measuredPasses = state.measuredPasses ?? 8;   // замер: сколько лопастей прошло через точку за это время
-  state.rotorReticleZoom = state.rotorReticleZoom ?? 1; // масштаб схемы сетки (кнопки +/−, не зум страницы)
   function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
 
   // — солвер для TOF —
@@ -4569,16 +4572,22 @@ route('/moving-target', async () => {
       `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'L' : 'R'} (просто сверься, что всё сошлось, отдельно наводить сюда не нужно).`));
 
     // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
-    // масштаб схемы — кнопками (не зум страницы), чтобы не увеличивать весь экран целиком.
+    // значок-лупа открывает увеличенную (×3) версию поверх экрана, для ознакомления;
+    // сама схема на экране результата остаётся в исходном размере.
     resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
-    resultCard.appendChild(el('div', { style: 'display:flex;justify-content:center;align-items:center;gap:10px;margin-top:4px' },
-      el('button', { type: 'button', class: 'btn ghost', style: 'width:36px;height:32px;padding:0',
-        onclick: () => { state.rotorReticleZoom = Math.max(0.5, (state.rotorReticleZoom || 1) - 0.25); save(); } }, '−'),
-      el('div', { class: 'muted', style: 'font-size:11px;min-width:40px;text-align:center' }, `${Math.round((state.rotorReticleZoom || 1) * 100)}%`),
-      el('button', { type: 'button', class: 'btn ghost', style: 'width:36px;height:32px;padding:0',
-        onclick: () => { state.rotorReticleZoom = Math.min(3, (state.rotorReticleZoom || 1) + 0.25); save(); } }, '+')
+    resultCard.appendChild(el('div', { style: 'position:relative;max-width:220px;margin:4px auto 0' },
+      drawRotorReticleDiagram(dx_mil, holdMark, 1),
+      el('button', {
+        type: 'button', 'aria-label': 'Увеличить схему',
+        style: 'position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:14px;cursor:pointer;padding:0;line-height:1',
+        onclick: () => openSheet((sheet, close) => {
+          sheet.appendChild(el('h3', {}, 'Схема сетки (×3)'));
+          sheet.appendChild(el('div', { class: 'sub' }, 'Только для ознакомления'));
+          sheet.appendChild(drawRotorReticleDiagram(dx_mil, holdMark, 3));
+          sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Закрыть'));
+        })
+      }, '🔍')
     ));
-    resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark, state.rotorReticleZoom));
 
     resultCard.appendChild(el('div', { class: 'banner' },
       'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
