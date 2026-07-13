@@ -4200,6 +4200,9 @@ route('/moving-target', async () => {
   state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
   state.radiusUnit    = state.radiusUnit    || 'm'; // m | mil — как вводить радиус лопастей
   state.bladeSizeUnit = state.bladeSizeUnit || 'm'; // m | mil — как вводить диаметр гонга
+  state.rpmMode        = state.rpmMode        || 'manual'; // manual | count — как вводить RPM
+  state.measureSec     = state.measureSec     ?? 10;  // замер: длительность, с
+  state.measuredPasses = state.measuredPasses ?? 8;   // замер: сколько лопастей прошло через точку за это время
   function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
 
   // — солвер для TOF —
@@ -4379,6 +4382,43 @@ route('/moving-target', async () => {
       `= ${fmt(meterVal, 2)} м на ${fmt(state.distance_m, 0)} м дистанции`));
     return wrap;
   }
+  // RPM: вручную ИЛИ через замер (секунд + сколько лопастей прошло через
+  // фиксированную точку) — не нужно ловить «свою» лопасть, чтобы засечь
+  // полный оборот, достаточно считать пересечения точки.
+  // об/мин = лопастей_прошло × 60 / (кол-во_лопастей × секунд).
+  function rpmCountHintText() {
+    const passes = state.measuredPasses || 0, sec = state.measureSec || 0, blades = state.blades || 0;
+    const rpmCalc = (blades > 0 && sec > 0) ? (passes * 60) / (blades * sec) : 0;
+    const periodCalc = rpmCalc > 0 ? 60 / rpmCalc : 0;
+    return `→ ${fmt(rpmCalc, 2)} RPM · период оборота ${fmt(periodCalc, 2)} с`;
+  }
+  function rpmField() {
+    const isCount = state.rpmMode === 'count';
+    const wrap = el('div', {});
+    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px' },
+      el('label', { style: 'margin:0' }, 'Обороты, RPM'),
+      el('div', { class: 'chips', style: 'margin:0' },
+        el('div', { class: 'chip' + (!isCount ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+          onclick: () => { state.rpmMode = 'manual'; save(); } }, 'вручную'),
+        el('div', { class: 'chip' + (isCount ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+          onclick: () => { state.rpmMode = 'count'; save(); } }, 'замер по лопастям')
+      )
+    ));
+    if (!isCount) {
+      wrap.appendChild(el('input', { name: 'rpm', type: 'number', step: 'any', inputmode: 'decimal', value: fmt(state.rpm, 2) }));
+    } else {
+      wrap.appendChild(el('div', { class: 'row', style: 'margin-top:4px' },
+        el('div', {},
+          el('label', { style: 'font-size:11px' }, 'Замер, с'),
+          el('input', { name: 'measureSec', type: 'number', step: '0.1', inputmode: 'decimal', value: fmt(state.measureSec, 1) })),
+        el('div', {},
+          el('label', { style: 'font-size:11px' }, 'Лопастей прошло через точку'),
+          el('input', { name: 'measuredPasses', type: 'number', step: '1', inputmode: 'numeric', value: fmt(state.measuredPasses, 0) }))
+      ));
+      wrap.appendChild(el('div', { class: 'muted', id: 'rpm-count-hint', style: 'font-size:11px;margin-top:2px' }, rpmCountHintText()));
+    }
+    return wrap;
+  }
   function renderRotor() {
     const hRow = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:14px' });
     hRow.appendChild(el('h2', { style: 'margin:0;flex:1' }, 'Параметры ротора'));
@@ -4390,17 +4430,17 @@ route('/moving-target', async () => {
     modeCard.appendChild(hRow);
     modeCard.appendChild(el('div', { class: 'banner' },
       'Поражение лопастей вращающейся мишени (например, ротор-таргет на PRS). Расчёт даёт линейную скорость кончика лопасти, lead на «3 часах» и временное окно поражения.'));
+    modeCard.appendChild(rpmField());
     modeCard.appendChild(el('div', { class: 'row' },
-      numInput('rpm', 'Обороты, RPM', state.rpm),
+      numInput('blades', 'Кол-во лопастей', state.blades),
       unitField('radiusUnit', state.radius_m, 'Радиус лопастей')
     ));
     modeCard.appendChild(el('div', { class: 'row' },
-      numInput('blades', 'Кол-во лопастей', state.blades),
-      unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга')
+      unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга'),
+      selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
+        [{ value: 'cw', label: 'По часовой ↻' }, { value: 'ccw', label: 'Против ↺' }])
     ));
     modeCard.appendChild(el('div', { class: 'row' },
-      selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
-        [{ value: 'cw', label: 'По часовой ↻' }, { value: 'ccw', label: 'Против ↺' }]),
       numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
     ));
     function applyModeCardInputs() {
@@ -4411,11 +4451,23 @@ route('/moving-target', async () => {
       const bladeSize_m = state.bladeSizeUnit === 'mil'
         ? (d.bladeSize_mil != null ? (d.bladeSize_mil / 1000) * state.distance_m : state.bladeSize_m)
         : (d.bladeSize_m ?? state.bladeSize_m);
+      const blades = d.blades ?? state.blades;
+      let rpm, measureSec = state.measureSec, measuredPasses = state.measuredPasses;
+      if (state.rpmMode === 'count') {
+        measureSec = d.measureSec ?? state.measureSec;
+        measuredPasses = d.measuredPasses ?? state.measuredPasses;
+        rpm = (blades > 0 && measureSec > 0) ? (measuredPasses * 60) / (blades * measureSec) : state.rpm;
+      } else {
+        rpm = d.rpm ?? state.rpm;
+      }
       Object.assign(state, {
-        rpm: d.rpm, radius_m, blades: d.blades, bladeSize_m,
-        rotationDir: d.rotationDir, reactionSec: d.reactionSec
+        rpm, radius_m, blades, bladeSize_m,
+        rotationDir: d.rotationDir, reactionSec: d.reactionSec,
+        measureSec, measuredPasses
       });
       localStorage.setItem('moving:last', JSON.stringify(state));
+      const hint = modeCard.querySelector('#rpm-count-hint');
+      if (hint) hint.textContent = rpmCountHintText();
     }
     modeCard.addEventListener('input', () => { applyModeCardInputs(); renderResult(); });
   }
