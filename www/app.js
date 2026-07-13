@@ -4111,8 +4111,8 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   // фокальная плоскость — толщина/размер задан в SVG-юнитах и не делится
   // на z, поэтому при увеличении картинки сетка становится крупнее и
   // подробнее видна) ---
-  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 0.7 });
-  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 0.7 });
+  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 0.23 });
+  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 0.23 });
   // риски через 0.5 mil на ОБЕИХ осях: целые (1, 2, 3…) — крупные и толще,
   // половинки (0.5, 1.5…) — мельче. Раньше половинки/деления были только на
   // горизонтальной оси, на вертикальной — только декоративная «ёлочка» без
@@ -4121,7 +4121,7 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
     const isMajor = Math.abs(m - Math.round(m)) < 1e-6;
     const p = m * px;
     const halfH = isMajor ? 5.5 : 2.5;
-    const sw = isMajor ? 0.7 : 0.45;
+    const sw = isMajor ? 0.23 : 0.15;
     mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
     mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
     mk('line', { x1: -halfH, y1: p, x2: halfH, y2: p, stroke: '#fff', 'stroke-width': sw });
