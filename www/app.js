@@ -4128,6 +4128,54 @@ function openRotorHelpSheet() {
 }
 
 // ============== MOVING TARGET (линейная цель + секундомер + ротор) ==============
+// Схема сетки для метода «3 часа» на роторе: кружок = метка удержания (на
+// ёлочке, ниже центра), крестик = точка на горизонтальной линии, где её
+// пересечёт гонг — сигнал к выстрелу.
+function drawRotorReticleDiagram(crossMil, holdMil) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const R = 90;
+  const maxMil = Math.max(4, Math.abs(crossMil) * 1.5, Math.abs(holdMil) * 1.5);
+  const px = (R - 14) / maxMil; // пикселей на 1 mil
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
+  svg.setAttribute('class', 'reticle-svg');
+  svg.style.width = '220px'; svg.style.margin = '6px auto'; svg.style.display = 'block';
+  const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
+
+  // горизонтальная и вертикальная линии перекрестия (длинные — на всю сетку)
+  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#8a96a8', 'stroke-width': 1.4 });
+  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#8a96a8', 'stroke-width': 1.4 });
+  // риски через 1 mil на обеих осях
+  for (let m = 1; m <= maxMil; m++) {
+    const p = m * px;
+    mk('line', { x1: p, y1: -4, x2: p, y2: 4, stroke: '#5a6678', 'stroke-width': 1 });
+    mk('line', { x1: -p, y1: -4, x2: -p, y2: 4, stroke: '#5a6678', 'stroke-width': 1 });
+  }
+  // «ёлочка» — короткие горизонтальные штрихи НИЖЕ центра (там, где реально бывают метки)
+  for (let m = 1; m <= Math.ceil(maxMil); m++) {
+    const y = m * px;
+    const w = 10 - m * 0.8; // сужается книзу, как классическая ёлочка
+    mk('line', { x1: -Math.max(w, 3), y1: y, x2: Math.max(w, 3), y2: y, stroke: '#3a4658', 'stroke-width': 1 });
+  }
+  mk('circle', { cx: 0, cy: 0, r: 2, fill: '#8a96a8' });
+
+  // кружок — метка удержания (holdMil отрицательный = ниже центра)
+  const hy = -holdMil * px; // в SVG y растёт вниз, а holdMil отрицателен (ниже) → hy положительный
+  mk('circle', { cx: 0, cy: hy, r: 6, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 });
+  mk('circle', { cx: 0, cy: hy, r: 1.5, fill: '#ff8b3d' });
+  const holdLabel = mk('text', { x: 10, y: hy + 4, fill: '#ff8b3d', 'font-size': 8 });
+  holdLabel.textContent = `цель сюда: ${fmt(holdMil, 2)}`;
+
+  // крестик — точка пересечения на горизонтальной линии
+  const cx = crossMil * px;
+  mk('line', { x1: cx - 6, y1: -6, x2: cx + 6, y2: 6, stroke: '#4ade80', 'stroke-width': 2.4, 'stroke-linecap': 'round' });
+  mk('line', { x1: cx - 6, y1: 6, x2: cx + 6, y2: -6, stroke: '#4ade80', 'stroke-width': 2.4, 'stroke-linecap': 'round' });
+  const crossLabel = mk('text', { x: cx, y: -12, fill: '#4ade80', 'font-size': 8, 'text-anchor': 'middle' });
+  crossLabel.textContent = `огонь: ${fmt(crossMil, 2)}`;
+
+  return svg;
+}
+
 route('/moving-target', async () => {
   setHeader({ title: 'Движущаяся цель' });
   const [weapons, cartridges] = await Promise.all([Store.getAll('weapons'), Store.getAll('cartridges')]);
@@ -4148,16 +4196,23 @@ route('/moving-target', async () => {
   state.radius_m    = state.radius_m    ?? 0.5;
   state.blades      = state.blades      ?? 4;
   state.bladeSize_m = state.bladeSize_m ?? 0.1;
+  state.rotationDir = state.rotationDir || 'cw';   // cw | ccw — куда крутится (вид от стрелка)
+  state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
   function save() { localStorage.setItem('moving:last', JSON.stringify(state)); render(); }
 
   // — солвер для TOF —
-  function computeTOF() {
+  // возвращает полную строку решения (tof_s, drop_mil, drift_mil, vel_mps…),
+  // а не только TOF — нужна реальная поправка по высоте на дистанцию.
+  function computeRow() {
     const w = weapons.find(x => x.id === state.weaponId);
     const c = cartridges.find(x => x.id === state.cartridgeId);
     if (!w || !c) return null;
     const input = buildSolverInputFor(w, c, [state.distance_m], state.weather);
     const r = Ballistics.solve(input);
-    return r.rows[0]?.tof_s || null;
+    const row = r.rows[0];
+    if (row && c) applyCartridgeOffset(row, c, true);
+    if (row && w) applySSF(row, w);
+    return row;
   }
 
   // — главный layout —
@@ -4320,10 +4375,16 @@ route('/moving-target', async () => {
       numInput('blades', 'Кол-во лопастей', state.blades),
       numInput('bladeSize_m', 'Размер лопасти, м', state.bladeSize_m, { step: '0.01' })
     ));
+    modeCard.appendChild(el('div', { class: 'row' },
+      selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
+        [{ value: 'cw', label: 'По часовой ↻' }, { value: 'ccw', label: 'Против ↺' }]),
+      numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
+    ));
     modeCard.addEventListener('input', () => {
       const d = readForm(modeCard);
       Object.assign(state, {
-        rpm: d.rpm, radius_m: d.radius_m, blades: d.blades, bladeSize_m: d.bladeSize_m
+        rpm: d.rpm, radius_m: d.radius_m, blades: d.blades, bladeSize_m: d.bladeSize_m,
+        rotationDir: d.rotationDir, reactionSec: d.reactionSec
       });
       localStorage.setItem('moving:last', JSON.stringify(state));
       renderResult();
@@ -4333,11 +4394,12 @@ route('/moving-target', async () => {
   // ───────── РЕЗУЛЬТАТ ─────────
   function renderResult() {
     resultCard.innerHTML = '';
-    const tof = computeTOF();
-    if (!tof) {
+    const row = computeRow();
+    if (!row) {
       resultCard.appendChild(el('div', { class: 'banner' }, 'Выбери оружие и патрон.'));
       return;
     }
+    const tof = row.tof_s;
     resultCard.appendChild(el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'Время полёта пули'), el('div', { class: 'v' }, fmt(tof, 2) + ' с'),
       el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
@@ -4365,32 +4427,55 @@ route('/moving-target', async () => {
       resultCard.appendChild(el('div', { class: 'banner accent' },
         `Прицеливайся ${fmt(Math.abs(lead_mil), 2)} mil ${lead_mil >= 0 ? 'вперёд по направлению движения' : 'назад'} от цели. Удерживай при стрельбе (sustained lead) или стреляй когда цель «догонит» отметку (trapping).`));
     } else {
-      // ротор
+      // ротор — метод «3 часа»: точка прицеливания = точка скрытия/появления
+      // гонга у вала (движение там строго вертикальное). Считаем НЕ упреждение
+      // в воздухе, а точку на сетке + реальную баллистическую поправку.
       const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
-      const v_tan = omega * state.radius_m; // м/с по кончику
-      const lead_m = v_tan * tof;
-      const lead_mil = state.distance_m > 0 ? (lead_m / state.distance_m) * 1000 : 0;
+      const v_tan = omega * state.radius_m; // м/с по кончику (одинакова везде на круге)
       const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
       const periodSec = state.rpm > 0 ? 60 / state.rpm : 0;
       const bladePassesPerSec = state.blades * (state.rpm / 60);
 
+      const tLead = tof + (state.reactionSec || 0);
+      const phi = omega * tLead; // рад, угол опережения
+      const dxBase = state.radius_m * (Math.cos(phi) - 1); // всегда ≤0
+      const dx_m = state.rotationDir === 'ccw' ? -dxBase : dxBase;
+      const dy_m = state.radius_m * Math.sin(phi);
+      const dx_mil = state.distance_m > 0 ? (dx_m / state.distance_m) * 1000 : 0;
+      const dy_mil = state.distance_m > 0 ? (dy_m / state.distance_m) * 1000 : 0;
+
+      const dropMil = row.drop_mil || 0;           // реальная поправка по высоте на дистанцию (солвер)
+      const totalDial = dropMil + dy_mil;           // итоговая накрутка на барабанчике
+      const holdMark = -dy_mil;                     // метка на ёлочке (ниже центра)
+      const clicksExtra = dy_mil / 0.1;              // доп. клики сверх обычной поправки (0.1 mil/клик)
+
       resultCard.appendChild(el('hr'));
       resultCard.appendChild(el('div', { class: 'info-card' },
-        el('div', { class: 'label' }, 'Lead для лопасти на 3 ч.'),
-        el('div', { class: 'clock-display' }, fmt(lead_mil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
-        el('div', { class: 'muted center' }, `касательная скорость ${fmt(v_tan, 1)} м/с`)
+        el('div', { class: 'label' }, 'Базовая поправка по высоте (с учётом дистанции)'),
+        el('div', { class: 'clock-display' }, fmt(dropMil, 2), el('span', { style: 'font-size:14px;color:var(--muted)' }, 'mil')),
+        el('div', { class: 'muted center' }, `реальный расчёт солвера на ${state.distance_m} м — обычная поправка, как для неподвижной цели`)
+      ));
+      resultCard.appendChild(el('div', { class: 'kv' },
+        el('div', { class: 'k' }, 'Доп. смещение (метод «3 часа»)'), el('div', { class: 'v accent' }, `+${fmt(dy_mil, 2)} mil`),
+        el('div', { class: 'k' }, 'Итоговая накрутка'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
+        el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(holdMark, 2)} mil от центра`),
+        el('div', { class: 'k' }, 'Пересечение линии — от вертикали'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'влево' : 'вправо'}`)
       ));
       resultCard.appendChild(el('div', { class: 'kv' },
         el('div', { class: 'k' }, 'Период оборота'), el('div', { class: 'v' }, fmt(periodSec, 2) + ' с'),
         el('div', { class: 'k' }, 'Лопастей в секунду'), el('div', { class: 'v' }, fmt(bladePassesPerSec, 1)),
         el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec * 1000, 0) + ' мс'),
-        el('div', { class: 'k' }, 'TOF / окно'), el('div', { class: 'v' }, fmt(tof / Math.max(windowSec, 0.001), 1) + '×')
+        el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 2) + ' с')
       ));
-      const hard = tof > windowSec * 3;
-      resultCard.appendChild(el('div', { class: hard ? 'banner accent' : 'banner', style: hard ? '' : 'border-color:var(--good-dim)' },
-        hard
-          ? `Окно поражения короче TOF в ${fmt(tof/windowSec, 0)} раз — нужен sustained lead и точный тайминг. Стреляй в момент, когда лопасть ещё не дошла до 3 ч., на ${fmt(lead_mil, 1)} mil вперёд.`
-          : `Окно ≈${fmt(windowSec*1000, 0)} мс — лопасть «видна» в зоне прицеливания дольше TOF. Стандартная техника: целишься в 3 ч., стреляешь когда лопасть подходит к зоне.`));
+      resultCard.appendChild(el('div', { class: 'banner accent' },
+        `1) Докрути ${fmt(totalDial, 2)} mil (обычная поправка ${fmt(dropMil, 2)} + доп. ${fmt(dy_mil, 2)} mil сверху). ` +
+        `2) Держи метку «${fmt(holdMark, 2)}» на ёлочке в точке скрытия/появления гонга у вала. ` +
+        `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'левее' : 'правее'} вертикали.`));
+
+      // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
+      resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
+      resultCard.appendChild(drawRotorReticleDiagram(dx_mil, holdMark));
+
       resultCard.appendChild(el('div', { class: 'banner' },
         'Альтернативные методики: 1) стрельба в ось вращения — для коротких лопастей лопасти «прилетают» сами; 2) сериями выстрелов — повышает шанс попасть в окно при неизвестной фазе; 3) tracking — поворот ствола за лопастью, требует много тренировки.'));
     }
