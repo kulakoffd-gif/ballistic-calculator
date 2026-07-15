@@ -3904,13 +3904,11 @@ function renderReticleViewer(reticle, rows) {
   const btnZoomOut = el('button', { type: 'button', class: 'btn-mini' }, '−');
   const btnReset   = el('button', { type: 'button', class: 'btn-mini' }, '1:1');
   const btnZoomIn  = el('button', { type: 'button', class: 'btn-mini' }, '+');
-  const btnClear   = el('button', { type: 'button', class: 'btn-mini ghost' }, '✕ метка');
   toolbar.appendChild(btnZoomOut);
   toolbar.appendChild(btnReset);
   toolbar.appendChild(btnZoomIn);
-  toolbar.appendChild(btnClear);
   wrap.appendChild(toolbar);
-  wrap.appendChild(el('div', { class: 'reticle-hint' }, 'Тап по сетке → «эта точка ≈ NNN м». Pinch — зум, drag — pan'));
+  wrap.appendChild(el('div', { class: 'reticle-hint' }, 'Pinch — зум, drag — pan'));
 
   // — viewport + canvas —
   const viewport = el('div', { class: 'reticle-viewport', style: 'position:relative' });
@@ -3942,15 +3940,12 @@ function renderReticleViewer(reticle, rows) {
   }, '🔍'));
   wrap.appendChild(viewport);
 
-  const subtensionLabel = el('div', { class: 'reticle-subtension' });
-  wrap.appendChild(subtensionLabel);
   const legend = el('div', { class: 'kv', style: 'margin-top:10px;font-size:13px' });
   wrap.appendChild(legend);
 
   let imgEl = null, displayScale = 1;
   let zoom = 1, panX = 0, panY = 0;
-  let marker = null;        // { cx, cy, range, drop_mil, drift_mil }
-  let pinchStart = null, panStart = null, dragHappened = false;
+  let pinchStart = null, panStart = null;
 
   function applyTransform() {
     canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
@@ -4008,57 +4003,9 @@ function renderReticleViewer(reticle, rows) {
           `${fmt(row.drop_mil,2)} mil ↓ · ${fmt(row.drift_mil,2)} mil →`));
       }
     });
-
-    if (marker) {
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      const m = marker;
-      const mcx = m.cx * mult, mcy = m.cy * mult;
-      ctx.beginPath();
-      ctx.moveTo(mcx - 12, mcy); ctx.lineTo(mcx + 12, mcy);
-      ctx.moveTo(mcx, mcy - 12); ctx.lineTo(mcx, mcy + 12);
-      ctx.stroke();
-      ctx.beginPath(); ctx.arc(mcx, mcy, 14, 0, 2 * Math.PI); ctx.stroke();
-      const lbl = `≈ ${m.range} м`;
-      ctx.font = 'bold 14px monospace';
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
-      ctx.strokeText(lbl, mcx + 18, mcy - 12);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(lbl, mcx + 18, mcy - 12);
-      if (isMain) subtensionLabel.textContent =
-        `Точка сетки ≈ ${m.range} м · drop ${fmt(m.drop_mil,2)} mil · drift ${fmt(m.drift_mil,2)} mil`;
-    } else if (isMain) {
-      subtensionLabel.textContent = '';
-    }
   }
-
-  function tapToSubtension(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const cx = (clientX - rect.left) / rect.width  * canvas.width;
-    const cy = (clientY - rect.top)  / rect.height * canvas.height;
-    const drift_mil = (cx / displayScale - sc.cx) / sc.hx;
-    const drop_mil  = (cy / displayScale - sc.cy) / sc.vy;
-    let best = null, bestD = Infinity;
-    rows.forEach(r => {
-      const dr = (r.drift_mil || 0) - drift_mil;
-      const dd = (r.drop_mil  || 0) - drop_mil;
-      const d2 = dr * dr + dd * dd;
-      if (d2 < bestD) { bestD = d2; best = r; }
-    });
-    if (best) {
-      marker = { cx, cy, range: best.range, drop_mil, drift_mil };
-      draw();
-    }
-  }
-
-  // click → subtension (срабатывает после touchend на мобиле и на десктопе)
-  canvas.addEventListener('click', (e) => {
-    if (dragHappened) { dragHappened = false; return; }
-    tapToSubtension(e.clientX, e.clientY);
-  });
 
   // tap-кнопки
-  btnClear.addEventListener('click', () => { marker = null; draw(); });
   btnZoomIn.addEventListener('click', () => {
     const r = viewport.getBoundingClientRect();
     setZoom(zoom * 1.4, r.width / 2, r.height / 2);
@@ -4082,7 +4029,6 @@ function renderReticleViewer(reticle, rows) {
         cy: (a.clientY + b.clientY) / 2
       };
       panStart = null;
-      dragHappened = true;
     } else if (e.touches.length === 1) {
       panStart = { sx: e.touches[0].clientX, sy: e.touches[0].clientY, panX, panY };
     }
@@ -4113,7 +4059,6 @@ function renderReticleViewer(reticle, rows) {
       e.preventDefault();
       const dx = e.touches[0].clientX - panStart.sx;
       const dy = e.touches[0].clientY - panStart.sy;
-      if (Math.abs(dx) + Math.abs(dy) > 4) dragHappened = true;
       panX = panStart.panX + dx;
       panY = panStart.panY + dy;
       applyTransform();

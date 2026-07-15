@@ -739,11 +739,6 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
   display: block; transform-origin: 0 0; width: 100%; height: auto;
   user-select: none; -webkit-user-select: none;
 }
-.reticle-subtension {
-  font-size: 12px; color: var(--accent); text-align: center;
-  margin-top: 8px; font-variant-numeric: tabular-nums; min-height: 1em;
-  letter-spacing: 0.5px;
-}
 
 /* === Inclination warning баннер === */
 .incl-banner {
