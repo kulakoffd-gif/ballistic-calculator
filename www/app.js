@@ -535,7 +535,10 @@ function kestrelLast() {
 // Возвращает обычный numInput, но с рядом мини-кнопок источников справа.
 // sources: [{icon, title, action: async () => value, digits}]
 function numInputWithSources(name, label, val, sources, attrs = {}) {
-  const wrap = el('div', {});
+  // Отдельная рамка+фон вокруг подписи+поля+кнопок источников — иначе на
+  // экране с несколькими полями подряд неясно, какие именно кнопки (📡/📱/🐦)
+  // относятся к какому полю.
+  const wrap = el('div', { class: sources && sources.length ? 'field-group' : '' });
   wrap.appendChild(el('label', { for: name }, label));
   const row = el('div', { class: 'input-row' });
   const input = el('input', { id: name, name, type: 'number',
@@ -2222,7 +2225,7 @@ route('/calc', async () => {
   // === АТМОСФЕРА ===
   const secAtmo = makeSection('atmo');
   secAtmo.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
-    '🌐 Open-Meteo · 📱 датчик · 📡 Kestrel'));
+    '📡 Open-Meteo · 📱 датчик/GPS · 🐦 Kestrel'));
   // Живой поток с Kestrel (как в AB): пока переключатель включён и Kestrel подключён,
   // темп./давл./влажн./ветер обновляются сами при каждом новом пакете данных.
   const kestrelStreamChip = el('div', { class: 'chip' + (localStorage.getItem('kestrelStream') === '1' ? ' active' : ''),

@@ -476,6 +476,15 @@ label { text-align: center; }
 .range-stepper .range-cancel:active { background: var(--bad); color: #1a0e05; }
 
 /* ===== per-field источники данных ===== */
+/* Обёртка вокруг подписи+поля+кнопок источников — рамка и фон визуально
+   объединяют их, иначе неясно, какие кнопки (📡/📱/🐦) к какому полю. */
+.field-group {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-2);
+  padding: 8px 10px 10px;
+}
+.field-group > label { margin-top: 0; }
 .input-row { display: flex; gap: 4px; align-items: stretch; }
 .input-row > input { flex: 1; min-width: 0; }
 .input-row > .sources { display: flex; gap: 3px; flex-shrink: 0; }
