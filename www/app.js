@@ -3925,8 +3925,16 @@ function renderReticleViewer(reticle, rows) {
       if (!imgEl) return;
       openSheet((sheet, close) => {
         sheet.appendChild(el('h3', {}, 'Сетка (×2.5)'));
-        const bigCanvas = el('canvas', { style: 'display:block;width:100%;max-width:100%;border-radius:8px' });
-        sheet.appendChild(bigCanvas);
+        sheet.appendChild(el('div', { class: 'muted', style: 'font-size:11px;text-align:center;margin-bottom:6px' }, 'Скролли/тяни, чтобы посмотреть другие части'));
+        // canvas БЕЗ ограничения ширины стилем — рендерится в НАТУРАЛЬНЫЙ
+        // увеличенный пиксельный размер (реальное увеличение, а не просто
+        // более высокое разрешение, сжатое обратно под ширину карточки).
+        // Оборачивающий div со scroll — чтобы посмотреть все края увеличенной
+        // картинки на маленьком экране.
+        const bigWrap = el('div', { style: 'overflow:auto;max-width:100%;max-height:65vh;-webkit-overflow-scrolling:touch;border-radius:8px' });
+        const bigCanvas = el('canvas', { style: 'display:block;border-radius:8px' });
+        bigWrap.appendChild(bigCanvas);
+        sheet.appendChild(bigWrap);
         draw(bigCanvas, 2.5);
         sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Закрыть'));
       });
