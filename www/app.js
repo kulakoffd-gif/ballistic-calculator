@@ -3622,10 +3622,12 @@ route('/reticle/:id', async ({ id }) => {
   }
 
   const refRow = el('div', { class: 'row', style: 'margin-top:8px' },
-    numInput('refMilV', 'Ссыл. точка — от центра, mil (+D)', cal?.p1_mil_v ?? 0, { step: '0.1' }),
-    numInput('refMilH', 'вбок (+R), mil', cal?.p1_mil_h ?? 0, { step: '0.1' })
+    numInput('refMilV', 'Точка от центра по оси Y, mil (+D)', cal?.p1_mil_v ?? 0, { step: '0.1' }),
+    numInput('refMilH', 'Точка от центра по оси X, mil (+R)', cal?.p1_mil_h ?? 0, { step: '0.1' })
   );
   photoCard.appendChild(refRow);
+  photoCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
+    'Ось Y — насколько ссылочная точка смещена ВВЕРХ/ВНИЗ от центра (0, если она на той же высоте). Ось X — насколько ВЛЕВО/ВПРАВО (0, если строго над/под центром). Если точка смещена только по одной оси — вторую оставь 0.'));
 
   function drawCanvas() {
     if (!img) return;
@@ -3911,9 +3913,25 @@ function renderReticleViewer(reticle, rows) {
   wrap.appendChild(el('div', { class: 'reticle-hint' }, 'Тап по сетке → «эта точка ≈ NNN м». Pinch — зум, drag — pan'));
 
   // — viewport + canvas —
-  const viewport = el('div', { class: 'reticle-viewport' });
+  const viewport = el('div', { class: 'reticle-viewport', style: 'position:relative' });
   const canvas = el('canvas', { class: 'reticle-canvas' });
   viewport.appendChild(canvas);
+  // значок-лупа — открывает увеличенную (×2.5) статичную копию поверх экрана,
+  // для ознакомления, тот же паттерн, что и у схемы сетки на роторе.
+  viewport.appendChild(el('button', {
+    type: 'button', 'aria-label': 'Увеличить сетку',
+    style: 'position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:14px;cursor:pointer;padding:0;line-height:1;z-index:2',
+    onclick: () => {
+      if (!imgEl) return;
+      openSheet((sheet, close) => {
+        sheet.appendChild(el('h3', {}, 'Сетка (×2.5)'));
+        const bigCanvas = el('canvas', { style: 'display:block;width:100%;max-width:100%;border-radius:8px' });
+        sheet.appendChild(bigCanvas);
+        draw(bigCanvas, 2.5);
+        sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Закрыть'));
+      });
+    }
+  }, '🔍'));
   wrap.appendChild(viewport);
 
   const subtensionLabel = el('div', { class: 'reticle-subtension' });
@@ -3942,48 +3960,60 @@ function renderReticleViewer(reticle, rows) {
 
   const colors = ['#4ade80','#ffb072','#ff8b3d','#f87171','#a78bfa','#67e8f9','#fde047','#fb923c','#22d3ee','#f472b6'];
 
-  function draw() {
+  // targetCanvas/mult — необязательные: для увеличенной статичной копии в
+  // модалке (лупа). Без параметров рисует как раньше, на основной canvas,
+  // и обновляет легенду/подпись под сеткой; для модалки эти два блока не
+  // трогаем (они уже видны на основной странице под сеткой).
+  function draw(targetCanvas, mult) {
     if (!imgEl) return;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+    const isMain = !targetCanvas;
+    targetCanvas = targetCanvas || canvas;
+    mult = mult || 1;
+    const ctx = targetCanvas.getContext('2d');
+    if (!isMain) { targetCanvas.width = canvas.width * mult; targetCanvas.height = canvas.height * mult; }
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+    ctx.drawImage(imgEl, 0, 0, targetCanvas.width, targetCanvas.height);
 
-    legend.innerHTML = '';
+    if (isMain) legend.innerHTML = '';
     rows.forEach((row, i) => {
       const px = sc.cx + (row.drift_mil || 0) * sc.hx;
       const py = sc.cy + (row.drop_mil || 0) * sc.vy;
-      const x = px * displayScale, y = py * displayScale;
-      if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return;
+      const x = px * displayScale * mult, y = py * displayScale * mult;
+      if (x < 0 || y < 0 || x > targetCanvas.width || y > targetCanvas.height) return;
       const color = colors[i % colors.length];
-      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y, 2, 0, 2 * Math.PI); ctx.fill();
-      ctx.font = 'bold 13px monospace';
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
-      ctx.strokeText(row.range + 'м', x + 12, y + 4);
-      ctx.fillText(row.range + 'м', x + 12, y + 4);
-      legend.appendChild(el('div', { class: 'k', style: 'color:' + color }, '● ' + row.range + ' м'));
-      legend.appendChild(el('div', { class: 'v' },
-        `${fmt(row.drop_mil,2)} mil ↓ · ${fmt(row.drift_mil,2)} mil →`));
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2 * mult;
+      ctx.beginPath(); ctx.arc(x, y, 8 * mult, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 2 * mult, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `bold ${13 * mult}px monospace`;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3 * mult;
+      ctx.strokeText(row.range + 'м', x + 12 * mult, y + 4 * mult);
+      ctx.fillStyle = color;
+      ctx.fillText(row.range + 'м', x + 12 * mult, y + 4 * mult);
+      if (isMain) {
+        legend.appendChild(el('div', { class: 'k', style: 'color:' + color }, '● ' + row.range + ' м'));
+        legend.appendChild(el('div', { class: 'v' },
+          `${fmt(row.drop_mil,2)} mil ↓ · ${fmt(row.drift_mil,2)} mil →`));
+      }
     });
 
     if (marker) {
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * mult;
       const m = marker;
+      const mcx = m.cx * mult, mcy = m.cy * mult;
       ctx.beginPath();
-      ctx.moveTo(m.cx - 12, m.cy); ctx.lineTo(m.cx + 12, m.cy);
-      ctx.moveTo(m.cx, m.cy - 12); ctx.lineTo(m.cx, m.cy + 12);
+      ctx.moveTo(mcx - 12 * mult, mcy); ctx.lineTo(mcx + 12 * mult, mcy);
+      ctx.moveTo(mcx, mcy - 12 * mult); ctx.lineTo(mcx, mcy + 12 * mult);
       ctx.stroke();
-      ctx.beginPath(); ctx.arc(m.cx, m.cy, 14, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(mcx, mcy, 14 * mult, 0, 2 * Math.PI); ctx.stroke();
       const lbl = `≈ ${m.range} м`;
-      ctx.font = 'bold 14px monospace';
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
-      ctx.strokeText(lbl, m.cx + 18, m.cy - 12);
+      ctx.font = `bold ${14 * mult}px monospace`;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 4 * mult;
+      ctx.strokeText(lbl, mcx + 18 * mult, mcy - 12 * mult);
       ctx.fillStyle = '#fff';
-      ctx.fillText(lbl, m.cx + 18, m.cy - 12);
-      subtensionLabel.textContent =
+      ctx.fillText(lbl, mcx + 18 * mult, mcy - 12 * mult);
+      if (isMain) subtensionLabel.textContent =
         `Точка сетки ≈ ${m.range} м · drop ${fmt(m.drop_mil,2)} mil · drift ${fmt(m.drift_mil,2)} mil`;
-    } else {
+    } else if (isMain) {
       subtensionLabel.textContent = '';
     }
   }
