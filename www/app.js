@@ -626,10 +626,13 @@ function setHudOn(on) {
 if (isHudOn()) document.body.classList.add('hud-mode');
 
 // ============== Режим яркого солнца ==============
-// Только поля ввода и карточки становятся светлыми с тёмным текстом —
-// шапка/навигация остаются тёмными (минимальный риск разойтись с общим
-// тёмным эталоном AB Quantum, но контраст на солнце заметно выше).
-function isSunModeOn() { return localStorage.getItem('sunMode') === '1'; }
+// Вся палитра приложения светло-серая с тёмным текстом (выше контраст на
+// солнце). Включён по умолчанию для новых пользователей; тумблер в
+// Настройках позволяет вернуть тёмную тему — выбор запоминается.
+function isSunModeOn() {
+  const v = localStorage.getItem('sunMode');
+  return v === null ? true : v === '1';
+}
 function setSunModeOn(on) {
   localStorage.setItem('sunMode', on ? '1' : '0');
   document.body.classList.toggle('sun-mode', on);
@@ -4748,7 +4751,7 @@ route('/settings', async () => {
   sunCb.addEventListener('change', () => { setSunModeOn(sunCb.checked); toast(sunCb.checked ? 'Режим яркого солнца вкл.' : 'выкл.'); });
   sun.appendChild(sunCb);
   sun.appendChild(el('span', { class: 'lbl' }, 'Режим яркого солнца',
-    el('span', { class: 'sub' }, 'Поля ввода и карточки становятся светлыми с тёмным текстом — выше контраст под прямыми лучами')));
+    el('span', { class: 'sub' }, 'Включён по умолчанию — всё приложение светлое с тёмным текстом, выше контраст под прямыми лучами. Выключи для тёмной темы')));
   prefsCard.appendChild(sun);
 
   view.appendChild(prefsCard);
