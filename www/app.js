@@ -3764,6 +3764,17 @@ route('/reticle/:id', async ({ id }) => {
       const ref = readForm(refRow);
       cal.p1_mil_v = ref.refMilV;
       cal.p1_mil_h = ref.refMilH;
+      // та же проверка, что и после тапа — но ещё раз именно в момент
+      // сохранения: пользователь мог поправить поле руками, не тапая
+      // фото заново, и без этой проверки предупреждение он бы не увидел.
+      const scCheck = reticleScale(cal);
+      if (scCheck) {
+        const hx = Math.abs(scCheck.hx), vy = Math.abs(scCheck.vy);
+        const ratio = hx > 0 && vy > 0 ? Math.max(hx / vy, vy / hx) : Infinity;
+        if (ratio > 4 && !confirm('⚠️ Похоже на ошибку калибровки: масштаб по вертикали и горизонтали сильно отличается. На реальной сетке шаг почти одинаковый — проверь, что оба mil-поля соответствуют реально тапнутой точке (если она чисто по одной оси — второе поле должно быть 0).\n\nВсё равно сохранить?')) {
+          return;
+        }
+      }
     }
     await Store.put('reticles', { ...r, ...d, cal });
     toast('Сохранено'); location.hash = '#/reticles';
