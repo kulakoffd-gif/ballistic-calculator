@@ -311,26 +311,26 @@ label { text-align: center; }
 }
 .calc-hud-area .solution-card {
   margin-bottom: 0;
-  padding: 10px 10px 12px;
+  padding: 8px 10px;
 }
 .calc-hud-area .axis .val { font-size: clamp(24px, 9vw, 38px); }
 .calc-hud-area .axis .sub-val { font-size: 11px; }
-.calc-hud-area .range-stepper { margin-top: 6px; }
+.calc-hud-area .range-stepper { margin-top: 4px; margin-bottom: 2px; }
 .calc-hud-area .range-stepper button.step { width: 38px; height: 38px; font-size: 20px; }
-.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 80px; }
-.calc-hud-area .dist-pick { font-size: 10px; }
+.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 80px; padding: 5px 10px; }
+.calc-hud-area .dist-pick { font-size: 10px; margin-bottom: 4px; }
 /* Строка деталей под решением (AB Quantum-style): TOF · энергия · скорость · Mach */
 .hud-detail {
   display: flex; justify-content: space-between; gap: 6px;
-  margin-top: 8px; padding-top: 8px;
+  margin-top: 6px; padding: 6px 4px 2px;
   border-top: 1px solid var(--border);
 }
 .hud-detail-cell { flex: 1; text-align: center; min-width: 0; }
 .hud-detail-v { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .hud-detail-k { font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--muted); }
 /* переключатель видов HUD (Решение/Сетка/WEZ) */
-.hud-tabs { display: flex; gap: 4px; margin: 6px 0 10px; }
-.hud-tabs .chip { flex: 1; text-align: center; padding: 7px 6px; font-size: 12px; }
+.hud-tabs { display: flex; gap: 4px; margin: 2px 0 6px; }
+.hud-tabs .chip { flex: 1; text-align: center; padding: 6px 6px; font-size: 12px; }
 .hud-prob { text-align: center; font-size: 13px; font-weight: 600; margin: 6px 0 2px; }
 .hud-view { padding: 4px 0; }
 .wez-prob { text-align: center; font-size: clamp(40px, 16vw, 64px); font-weight: 700; line-height: 1; }
@@ -451,11 +451,11 @@ label { text-align: center; }
 /* Дистанция: одно поле + единица + отмена */
 .range-stepper {
   display: flex; align-items: center; justify-content: center;
-  gap: 8px; margin-top: 14px;
+  gap: 8px; margin-top: 8px;
 }
 .range-stepper .range-input {
   font-size: 30px; font-weight: 600; color: var(--accent);
-  text-align: center; width: 140px; padding: 8px 10px;
+  text-align: center; width: 140px; padding: 6px 10px;
   background: var(--field-bg); border: 1.5px solid var(--accent);
   border-radius: 12px;
   font-variant-numeric: tabular-nums; letter-spacing: 1px;
@@ -519,17 +519,18 @@ label { text-align: center; }
   color: var(--muted); margin-bottom: 8px;
 }
 .solution-card .main-values {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px;
+  background: var(--panel-2); border-radius: 14px; padding: 8px 4px 6px;
 }
 .solution-card .main-values.has-w2 { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .solution-card .main-values.has-w2 .axis .val { font-size: clamp(20px, 7.5vw, 34px); }
 .solution-card .main-values.has-w2 .axis .lbl { font-size: 9px; letter-spacing: 1px; }
 .solution-card .main-values.has-w2 .axis .sub-val { font-size: 10px; }
 .solution-card .axis.axis-w2 .lbl { color: var(--accent-2); }
-.solution-card .axis { padding: 4px; min-width: 0; }
+.solution-card .axis { padding: 2px; min-width: 0; }
 .solution-card .axis .lbl {
   font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
-  color: var(--muted); margin-bottom: 4px;
+  color: var(--muted); margin-bottom: 2px;
 }
 .solution-card .axis .val {
   font-size: clamp(26px, 10vw, 44px);
@@ -547,12 +548,12 @@ label { text-align: center; }
 }
 .solution-card .axis .sub-val:empty { display: none; }
 .solution-card .axis .sub-val {
-  font-size: 11px; color: var(--muted); margin-top: 4px;
+  font-size: 11px; color: var(--muted); margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
 .solution-card .dist-chips {
   display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 .solution-card .dist-chips .chip { font-variant-numeric: tabular-nums; }
 
@@ -769,8 +770,8 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 
 /* === Spotting кнопка в HUD === */
 .solution-card .spot-btn {
-  display: block; width: 100%; margin-top: 8px;
-  padding: 10px; font-size: 12px; letter-spacing: 1px;
+  display: block; width: 100%; margin-top: 6px;
+  padding: 8px; font-size: 12px; letter-spacing: 1px;
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 8px;
   font-family: inherit; cursor: pointer;
