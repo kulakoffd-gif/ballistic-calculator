@@ -5901,7 +5901,7 @@ route('/drag-builder', async () => {
     return;
   }
   view.appendChild(el('div', { class: 'banner' },
-    'Вставь DOPE-таблицу «дистанция, факт. mil» по строкам — приложение подберёт BC× для каждой точки (Litz banding) и запишет в патрон.'));
+    'Вставь DOPE-таблицу «дистанция, факт. mil» по строкам — приложение подберёт BC× для каждой точки (Litz banding) и запишет в патрон. Это работает и в переходной/дозвуковой зоне (у AB это называется отдельно «DSF») — если стреляешь далеко и пуля там переходит в дозвук, добавь несколько точек ИМЕННО в этом диапазоне (не только 1-2 далёких), обычная G1/G7 модель там часто ошибается сильнее, чем на сверхзвуке.'));
   const f = el('form', { class: 'card' });
   f.appendChild(selectInput('weaponId', 'Оружие', '', weapons.map(w => ({ value: w.id, label: w.name }))));
   f.appendChild(selectInput('cartridgeId', 'Патрон', '', cartridges.map(c => ({ value: c.id, label: c.name }))));
