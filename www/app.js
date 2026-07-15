@@ -234,8 +234,11 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
     let a = Math.atan2(dx, -dy) * 180 / Math.PI;
     return (a + 360) % 360;
   }
+  // Направление меняется ТОЛЬКО перетаскиванием, не одиночным щелчком —
+  // иначе случайный тап по противоположной от стрелки стороне циферблата
+  // мгновенно перекидывал её туда.
   let drag = false;
-  function onDown(e) { drag = true; setAngle(angleAt(e)); e.preventDefault(); }
+  function onDown(e) { drag = true; e.preventDefault(); }
   function onMove(e) { if (drag) { setAngle(angleAt(e)); e.preventDefault(); } }
   function onUp() { drag = false; }
   svg.addEventListener('mousedown', onDown);
@@ -349,8 +352,12 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
     let a = Math.atan2(dx, -dy) * 180 / Math.PI; // 0 = вверх (12 ч)
     return (a + 360) % 360;
   }
+  // Направление меняется ТОЛЬКО перетаскиванием, не одиночным щелчком —
+  // иначе случайный тап по противоположной от стрелки стороне циферблата
+  // мгновенно перекидывал её туда. mousedown/touchstart только начинает
+  // жест; сам угол выставляется в onMove, пока палец/курсор реально едет.
   let drag = false;
-  function onDown(e) { drag = true; setAngleRaw(angleAt(e)); e.preventDefault(); }
+  function onDown(e) { drag = true; e.preventDefault(); }
   function onMove(e) { if (drag) { setAngleRaw(angleAt(e)); e.preventDefault(); } }
   function onUp() { drag = false; }
   bg.style.cursor = 'grab';
