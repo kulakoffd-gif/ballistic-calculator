@@ -3605,8 +3605,36 @@ route('/reticle/:id', async ({ id }) => {
       : 'Загрузи фото или PNG сетки.');
   photoCard.appendChild(calStateInfo);
 
+  const canvasWrap = el('div', { style: 'position:relative' });
   const canvas = el('canvas', { style: 'max-width:100%;height:auto;display:block;border:1px solid var(--border);border-radius:8px;background:#000;touch-action:none;cursor:crosshair' });
-  photoCard.appendChild(canvas);
+  canvasWrap.appendChild(canvas);
+  const MAG = 2.5;
+  let bigCanvasOpen = null; // ссылка на увеличенный canvas, пока открыта лупа-модалка
+  canvasWrap.appendChild(el('button', {
+    type: 'button', 'aria-label': 'Увеличить для точного тапа',
+    style: 'position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:14px;cursor:pointer;padding:0;line-height:1;z-index:2',
+    onclick: () => {
+      if (!img) return;
+      openSheet((sheet, close) => {
+        sheet.appendChild(el('h3', {}, `Калибровка (×${MAG})`));
+        sheet.appendChild(el('div', { class: 'muted', style: 'font-size:11px;text-align:center;margin-bottom:6px' }, 'Тапай точки прямо здесь — так же, как на обычном фото. Скролли, чтобы посмотреть другие части.'));
+        const bigWrap = el('div', { style: 'overflow:auto;max-width:100%;max-height:65vh;-webkit-overflow-scrolling:touch;border-radius:8px' });
+        const bigCanvas = el('canvas', { style: 'display:block;border-radius:8px;cursor:crosshair' });
+        bigWrap.appendChild(bigCanvas);
+        sheet.appendChild(bigWrap);
+        bigCanvasOpen = bigCanvas;
+        drawCanvas(bigCanvas, MAG);
+        bigCanvas.addEventListener('click', (e) => {
+          const rect = bigCanvas.getBoundingClientRect();
+          const x_nat = (e.clientX - rect.left) / rect.width * bigCanvas.width / (scale * MAG);
+          const y_nat = (e.clientY - rect.top) / rect.height * bigCanvas.height / (scale * MAG);
+          handleTap(x_nat, y_nat);
+        });
+        sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: () => { bigCanvasOpen = null; close(); }, style: 'margin-top:14px' }, 'Закрыть'));
+      });
+    }
+  }, '🔍'));
+  photoCard.appendChild(canvasWrap);
 
   // mode state
   // Калибровка по ДВУМ точкам на каждой оси (не через центр): масштаб
@@ -3648,30 +3676,43 @@ route('/reticle/:id', async ({ id }) => {
   photoCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
     'Для каждой оси нужны ДВЕ метки с точно известным mil-значением (например, подписанные риски 1 и 1.5 mil) — масштаб считается по расстоянию МЕЖДУ ними. Нет рисок по одной из осей (например, только вертикальные холдоверы) — просто не тапай ту пару, масштаб возьмётся таким же, как по другой оси.'));
 
-  function drawCanvas() {
+  // targetCanvas/mult — необязательные: для увеличенной копии в лупе-модалке.
+  // Маркеры (центр, vA/vB/hA/hB) рисуются КОНСТАНТНОГО размера в пикселях
+  // независимо от mult — «первая фокальная плоскость», как и на схеме
+  // ротора/в просмотре сетки: увеличивается фото, а не курсор-маркер.
+  function drawCanvas(targetCanvas, mult) {
     if (!img) return;
-    const maxW = Math.min(window.innerWidth - 60, 640);
-    const w = Math.min(img.naturalWidth, maxW);
-    scale = w / img.naturalWidth;
-    canvas.width = w;
-    canvas.height = img.naturalHeight * scale;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const isMain = !targetCanvas;
+    mult = mult || 1;
+    if (isMain) {
+      const maxW = Math.min(window.innerWidth - 60, 640);
+      const w = Math.min(img.naturalWidth, maxW);
+      scale = w / img.naturalWidth;
+      canvas.width = w;
+      canvas.height = img.naturalHeight * scale;
+    }
+    const tc = targetCanvas || canvas;
+    if (!isMain) { tc.width = canvas.width * mult; tc.height = canvas.height * mult; }
+    const ctx = tc.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, tc.width, tc.height);
+    ctx.drawImage(img, 0, 0, tc.width, tc.height);
     if (!cal) return;
+    const S = scale * mult; // натуральный px фото → пиксели ЭТОГО canvas
     if (cal.p0_x != null) {
+      const px = cal.p0_x * S, py = cal.p0_y * S;
       ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cal.p0_x * scale, cal.p0_y * scale, 12, 0, 2 * Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cal.p0_x * scale - 20, cal.p0_y * scale); ctx.lineTo(cal.p0_x * scale + 20, cal.p0_y * scale); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cal.p0_x * scale, cal.p0_y * scale - 20); ctx.lineTo(cal.p0_x * scale, cal.p0_y * scale + 20); ctx.stroke();
-      ctx.fillStyle = '#4ade80'; ctx.font = '12px monospace'; ctx.fillText('центр', cal.p0_x * scale + 16, cal.p0_y * scale - 16);
+      ctx.beginPath(); ctx.arc(px, py, 12, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px - 20, py); ctx.lineTo(px + 20, py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px, py - 20); ctx.lineTo(px, py + 20); ctx.stroke();
+      ctx.fillStyle = '#4ade80'; ctx.font = '12px monospace'; ctx.fillText('центр', px + 16, py - 16);
     }
     const drawPoint = (x, y, mil, color, label) => {
       if (x == null) return;
+      const px = x * S, py = y * S;
       ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x * scale, y * scale, 10, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 10, 0, 2 * Math.PI); ctx.stroke();
       ctx.fillStyle = color; ctx.font = '12px monospace';
-      ctx.fillText(`${label} ${fmt(mil ?? 0, 1)}`, x * scale + 14, y * scale + 4);
+      ctx.fillText(`${label} ${fmt(mil ?? 0, 1)}`, px + 14, py + 4);
     };
     drawPoint(cal.vA_x, cal.vA_y, cal.vA_mil, '#ff8b3d', 'vA');
     drawPoint(cal.vB_x, cal.vB_y, cal.vB_mil, '#ffce8a', 'vB');
@@ -3682,13 +3723,9 @@ route('/reticle/:id', async ({ id }) => {
   const MIL_FIELD = { vA: 'vAmil', vB: 'vBmil', hA: 'hAmil', hB: 'hBmil' };
   const MIL_ROW = { vA: milRowV, vB: milRowV, hA: milRowH, hB: milRowH };
 
-  canvas.addEventListener('click', (e) => {
-    if (!img) return;
-    const rect = canvas.getBoundingClientRect();
-    const x_disp = e.clientX - rect.left;
-    const y_disp = e.clientY - rect.top;
-    const x_nat = x_disp / scale;
-    const y_nat = y_disp / scale;
+  // Общая обработка тапа — вызывается и с основного canvas, и с увеличенного
+  // в лупе-модалке (координаты уже переведены в натуральные px фото).
+  function handleTap(x_nat, y_nat) {
     cal = cal || {};
     let msg;
     if (mode === 'center') {
@@ -3715,6 +3752,15 @@ route('/reticle/:id', async ({ id }) => {
     }
     calStateInfo.textContent = msg;
     drawCanvas();
+    if (bigCanvasOpen) drawCanvas(bigCanvasOpen, MAG);
+  }
+
+  canvas.addEventListener('click', (e) => {
+    if (!img) return;
+    const rect = canvas.getBoundingClientRect();
+    const x_nat = (e.clientX - rect.left) / rect.width * canvas.width / scale;
+    const y_nat = (e.clientY - rect.top) / rect.height * canvas.height / scale;
+    handleTap(x_nat, y_nat);
   });
 
   // Применить полученное dataUrl: сжать до 1500px, обновить img + canvas, сохранить в r.
