@@ -3519,13 +3519,13 @@ route('/reticles', async () => {
   setHeader({ title: 'Сетки прицелов' });
   const items = await Store.getAll('reticles');
   if (items.length === 0) view.appendChild(el('div', { class: 'banner' },
-    'Загрузи фото сетки своего прицела (или скачай PNG с сайта производителя), потом откалибруй: центр + одна известная метка с её mil-значением. После этого в результате расчёта появится вкладка «Прицел» с точками куда целиться.'));
+    'Загрузи фото сетки своего прицела (или скачай PNG с сайта производителя), потом откалибруй: центр + по две метки с точно известным mil-значением на вертикали и/или горизонтали. После этого в результате расчёта появится вкладка «Прицел» с точками куда целиться.'));
   for (const r of items) {
     view.appendChild(el('a', { class: 'list-item', href: '#/reticle/' + r.id },
       el('div', { class: 'ttl' }, r.name || 'Без названия'),
       el('div', { class: 'sub' }, [
         r.type || 'mil',
-        r.cal ? `калибровка: ${fmt(Math.abs(r.cal.p1_mil_v ?? 0), 1)} mil ${(r.cal.p1_mil_v ?? 0) < 0 ? 'U' : 'D'}` : 'без калибровки',
+        reticleScale(r.cal) ? 'калибровка: ✓' : 'без калибровки',
         r.imageDataUrl ? 'фото есть' : 'без фото'
       ].filter(Boolean).join(' · '))
     ));
@@ -3601,7 +3601,7 @@ route('/reticle/:id', async ({ id }) => {
 
   const calStateInfo = el('div', { class: 'banner', style: 'margin-top:8px' },
     r.imageDataUrl
-      ? (r.cal ? 'Калибровка готова. Можно изменить — тап на центр или ссылочную точку.' : 'Фото загружено. Откалибруй: тапни центр сетки, потом ссылочную метку и введи её mil-значение.')
+      ? (reticleScale(r.cal) ? 'Калибровка готова. Можно изменить — переключай чипы и тапай нужные точки заново.' : 'Фото загружено. Откалибруй: центр, потом по ДВЕ точки с точно известным mil-значением на вертикали и/или горизонтали (например, риски 1 и 1.5 mil).')
       : 'Загрузи фото или PNG сетки.');
   photoCard.appendChild(calStateInfo);
 
@@ -3609,28 +3609,44 @@ route('/reticle/:id', async ({ id }) => {
   photoCard.appendChild(canvas);
 
   // mode state
-  let mode = 'center'; // 'center' | 'ref'
+  // Калибровка по ДВУМ точкам на каждой оси (не через центр): масштаб
+  // px/mil считается из расстояния МЕЖДУ vA/vB (или hA/hB) — это не зависит
+  // от точности тапа по центру (его тяжело поймать точно на толстом
+  // перекрестии) и опирается на реально видимые тонкие риски, разнесённые
+  // подальше друг от друга — точнее, чем один тап от центра.
+  const MODES = [
+    { key: 'center', label: 'Центр' },
+    { key: 'vA', label: 'Точка А, верт.' },
+    { key: 'vB', label: 'Точка Б, верт.' },
+    { key: 'hA', label: 'Точка А, гор.' },
+    { key: 'hB', label: 'Точка Б, гор.' },
+  ];
+  let mode = 'center';
   let img = null;
   let scale = 1; // отображение → натуральные пиксели
   // локальные копии калибровки
   let cal = r.cal ? { ...r.cal } : null;
 
-  const modeRow = el('div', { class: 'chips', style: 'margin-top:8px' },
-    el('div', { class: 'chip active', onclick: () => { mode = 'center'; updateModeChips(); } }, 'Тап центра'),
-    el('div', { class: 'chip', onclick: () => { mode = 'ref'; updateModeChips(); } }, 'Тап ссылочной точки')
+  const modeRow = el('div', { class: 'chips', style: 'margin-top:8px;flex-wrap:wrap' },
+    ...MODES.map((m, i) => el('div', { class: 'chip' + (i === 0 ? ' active' : '') , onclick: () => { mode = m.key; updateModeChips(); } }, m.label))
   );
   photoCard.appendChild(modeRow);
   function updateModeChips() {
-    [...modeRow.children].forEach((c, i) => c.classList.toggle('active', (i === 0 && mode === 'center') || (i === 1 && mode === 'ref')));
+    [...modeRow.children].forEach((c, i) => c.classList.toggle('active', MODES[i].key === mode));
   }
 
-  const refRow = el('div', { class: 'row', style: 'margin-top:8px' },
-    numInput('refMilV', 'Точка от центра по оси Y, mil (+D)', cal?.p1_mil_v ?? 0, { step: '0.1' }),
-    numInput('refMilH', 'Точка от центра по оси X, mil (+R)', cal?.p1_mil_h ?? 0, { step: '0.1' })
+  const milRowV = el('div', { class: 'row', style: 'margin-top:8px' },
+    numInput('vAmil', 'Точка А, верт., mil (+D)', cal?.vA_mil ?? 1, { step: '0.1' }),
+    numInput('vBmil', 'Точка Б, верт., mil (+D)', cal?.vB_mil ?? 1.5, { step: '0.1' })
   );
-  photoCard.appendChild(refRow);
+  const milRowH = el('div', { class: 'row', style: 'margin-top:8px' },
+    numInput('hAmil', 'Точка А, гориз., mil (+R)', cal?.hA_mil ?? 1, { step: '0.1' }),
+    numInput('hBmil', 'Точка Б, гориз., mil (+R)', cal?.hB_mil ?? 1.5, { step: '0.1' })
+  );
+  photoCard.appendChild(milRowV);
+  photoCard.appendChild(milRowH);
   photoCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
-    'Ось Y — насколько ссылочная точка смещена ВВЕРХ/ВНИЗ от центра (0, если она на той же высоте). Ось X — насколько ВЛЕВО/ВПРАВО (0, если строго над/под центром). Если точка смещена только по одной оси — вторую оставь 0.'));
+    'Для каждой оси нужны ДВЕ метки с точно известным mil-значением (например, подписанные риски 1 и 1.5 mil) — масштаб считается по расстоянию МЕЖДУ ними. Нет рисок по одной из осей (например, только вертикальные холдоверы) — просто не тапай ту пару, масштаб возьмётся таким же, как по другой оси.'));
 
   function drawCanvas() {
     if (!img) return;
@@ -3642,22 +3658,29 @@ route('/reticle/:id', async ({ id }) => {
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    if (cal) {
-      if (cal.p0_x != null) {
-        ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cal.p0_x * scale, cal.p0_y * scale, 12, 0, 2 * Math.PI); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cal.p0_x * scale - 20, cal.p0_y * scale); ctx.lineTo(cal.p0_x * scale + 20, cal.p0_y * scale); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cal.p0_x * scale, cal.p0_y * scale - 20); ctx.lineTo(cal.p0_x * scale, cal.p0_y * scale + 20); ctx.stroke();
-        ctx.fillStyle = '#4ade80'; ctx.font = '12px monospace'; ctx.fillText('центр', cal.p0_x * scale + 16, cal.p0_y * scale - 16);
-      }
-      if (cal.p1_x != null) {
-        ctx.strokeStyle = '#ff8b3d'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cal.p1_x * scale, cal.p1_y * scale, 10, 0, 2 * Math.PI); ctx.stroke();
-        ctx.fillStyle = '#ff8b3d';
-        ctx.fillText(`ref ${fmt(cal.p1_mil_v ?? 0,1)}/${fmt(cal.p1_mil_h ?? 0,1)}`, cal.p1_x * scale + 14, cal.p1_y * scale + 4);
-      }
+    if (!cal) return;
+    if (cal.p0_x != null) {
+      ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cal.p0_x * scale, cal.p0_y * scale, 12, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cal.p0_x * scale - 20, cal.p0_y * scale); ctx.lineTo(cal.p0_x * scale + 20, cal.p0_y * scale); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cal.p0_x * scale, cal.p0_y * scale - 20); ctx.lineTo(cal.p0_x * scale, cal.p0_y * scale + 20); ctx.stroke();
+      ctx.fillStyle = '#4ade80'; ctx.font = '12px monospace'; ctx.fillText('центр', cal.p0_x * scale + 16, cal.p0_y * scale - 16);
     }
+    const drawPoint = (x, y, mil, color, label) => {
+      if (x == null) return;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x * scale, y * scale, 10, 0, 2 * Math.PI); ctx.stroke();
+      ctx.fillStyle = color; ctx.font = '12px monospace';
+      ctx.fillText(`${label} ${fmt(mil ?? 0, 1)}`, x * scale + 14, y * scale + 4);
+    };
+    drawPoint(cal.vA_x, cal.vA_y, cal.vA_mil, '#ff8b3d', 'vA');
+    drawPoint(cal.vB_x, cal.vB_y, cal.vB_mil, '#ffce8a', 'vB');
+    drawPoint(cal.hA_x, cal.hA_y, cal.hA_mil, '#67e8f9', 'hA');
+    drawPoint(cal.hB_x, cal.hB_y, cal.hB_mil, '#a5f3fc', 'hB');
   }
+
+  const MIL_FIELD = { vA: 'vAmil', vB: 'vBmil', hA: 'hAmil', hB: 'hBmil' };
+  const MIL_ROW = { vA: milRowV, vB: milRowV, hA: milRowH, hB: milRowH };
 
   canvas.addEventListener('click', (e) => {
     if (!img) return;
@@ -3667,31 +3690,30 @@ route('/reticle/:id', async ({ id }) => {
     const x_nat = x_disp / scale;
     const y_nat = y_disp / scale;
     cal = cal || {};
+    let msg;
     if (mode === 'center') {
       cal.p0_x = x_nat; cal.p0_y = y_nat;
-      mode = 'ref'; updateModeChips();
-      calStateInfo.textContent = 'Центр зафиксирован. Теперь тап на ссылочную точку (например, метку 5 mil под центром).';
+      msg = 'Центр зафиксирован. Теперь тапни точку А по вертикали (например, риска 1 mil) — или сразу переключись на горизонталь, если по вертикали рисок нет.';
     } else {
-      cal.p1_x = x_nat; cal.p1_y = y_nat;
-      const d = readForm(refRow);
-      cal.p1_mil_v = d.refMilV;
-      cal.p1_mil_h = d.refMilH;
-      let msg = `Ссылочная точка: (${fmt(x_nat,0)}, ${fmt(y_nat,0)}) px = (${fmt(Math.abs(d.refMilH),1)} mil ${d.refMilH < 0 ? 'L' : 'R'}, ${fmt(Math.abs(d.refMilV),1)} mil ${d.refMilV < 0 ? 'U' : 'D'}).`;
-      // защита от типичной ошибки: тапнул точку по одной оси (например, чисто
-      // по горизонтали), а поле смещения по ДРУГОЙ оси не обнулил/не заполнил —
-      // на реальной сетке шаг по вертикали и горизонтали почти одинаковый,
-      // сильный перекос почти всегда значит, что одно из двух mil-значений
-      // введено неверно (или не соответствует реально тапнутой точке).
-      const scCheck = reticleScale(cal);
-      if (scCheck) {
-        const hx = Math.abs(scCheck.hx), vy = Math.abs(scCheck.vy);
-        const ratio = hx > 0 && vy > 0 ? Math.max(hx / vy, vy / hx) : Infinity;
-        if (ratio > 4) {
-          msg += ' ⚠️ Похоже на ошибку калибровки: масштаб по вертикали и горизонтали сильно отличается — на реальной сетке шаг почти одинаковый. Проверь, что оба mil-поля соответствуют РЕАЛЬНОМУ смещению именно этой точки (если она чисто по одной оси — второе поле должно быть 0).';
-        }
-      }
-      calStateInfo.textContent = msg;
+      cal[mode + '_x'] = x_nat; cal[mode + '_y'] = y_nat;
+      const d = readForm(MIL_ROW[mode]);
+      cal[mode + '_mil'] = d[MIL_FIELD[mode]];
+      msg = `Точка ${mode}: (${fmt(x_nat,0)}, ${fmt(y_nat,0)}) px = ${fmt(d[MIL_FIELD[mode]],2)} mil.`;
     }
+    const idx = MODES.findIndex(m => m.key === mode);
+    if (idx >= 0 && idx < MODES.length - 1) { mode = MODES[idx + 1].key; updateModeChips(); }
+    // защита: если масштаб по вертикали и горизонтали получился сильно
+    // разным — на реальной сетке шаг почти одинаковый, скорее всего одно
+    // из mil-значений не соответствует реально тапнутой точке.
+    const scCheck = reticleScale(cal);
+    if (scCheck) {
+      const hx = Math.abs(scCheck.hx), vy = Math.abs(scCheck.vy);
+      const ratio = hx > 0 && vy > 0 ? Math.max(hx / vy, vy / hx) : Infinity;
+      if (ratio > 4) {
+        msg += ' ⚠️ Похоже на ошибку калибровки: масштаб по вертикали и горизонтали сильно отличается. Проверь mil-значения точек.';
+      }
+    }
+    calStateInfo.textContent = msg;
     drawCanvas();
   });
 
@@ -3764,21 +3786,23 @@ route('/reticle/:id', async ({ id }) => {
   buttons.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
     const d = readForm(f);
     d.ffp = !!d.ffp;
-    // если калибровка содержит обе точки и хотя бы одно mil — сохраняем
-    if (cal && cal.p0_x != null && cal.p1_x != null) {
-      const ref = readForm(refRow);
-      cal.p1_mil_v = ref.refMilV;
-      cal.p1_mil_h = ref.refMilH;
-      // та же проверка, что и после тапа — но ещё раз именно в момент
-      // сохранения: пользователь мог поправить поле руками, не тапая
-      // фото заново, и без этой проверки предупреждение он бы не увидел.
+    if (cal && cal.p0_x != null) {
+      // подтягиваем mil-поля на случай, если их поправили руками, не тапая
+      // фото заново — иначе в момент сохранения ушла бы устаревшая версия.
+      const v = readForm(milRowV), h = readForm(milRowH);
+      if (cal.vA_x != null) cal.vA_mil = v.vAmil;
+      if (cal.vB_x != null) cal.vB_mil = v.vBmil;
+      if (cal.hA_x != null) cal.hA_mil = h.hAmil;
+      if (cal.hB_x != null) cal.hB_mil = h.hBmil;
       const scCheck = reticleScale(cal);
-      if (scCheck) {
-        const hx = Math.abs(scCheck.hx), vy = Math.abs(scCheck.vy);
-        const ratio = hx > 0 && vy > 0 ? Math.max(hx / vy, vy / hx) : Infinity;
-        if (ratio > 4 && !confirm('⚠️ Похоже на ошибку калибровки: масштаб по вертикали и горизонтали сильно отличается. На реальной сетке шаг почти одинаковый — проверь, что оба mil-поля соответствуют реально тапнутой точке (если она чисто по одной оси — второе поле должно быть 0).\n\nВсё равно сохранить?')) {
-          return;
-        }
+      if (!scCheck) {
+        toast('Калибровка неполная: нужен центр + пара точек (А и Б, разные mil) хотя бы по одной оси.');
+        return;
+      }
+      const hx = Math.abs(scCheck.hx), vy = Math.abs(scCheck.vy);
+      const ratio = hx > 0 && vy > 0 ? Math.max(hx / vy, vy / hx) : Infinity;
+      if (ratio > 4 && !confirm('⚠️ Похоже на ошибку калибровки: масштаб по вертикали и горизонтали сильно отличается. На реальной сетке шаг почти одинаковый — проверь mil-значения точек.\n\nВсё равно сохранить?')) {
+        return;
       }
     }
     await Store.put('reticles', { ...r, ...d, cal });
@@ -3791,15 +3815,20 @@ route('/reticle/:id', async ({ id }) => {
 });
 
 // --- хелпер: построить пикс/mil из cal ---
+// Масштаб по каждой оси считается из расстояния МЕЖДУ двумя точками с
+// известным mil (vA/vB — вертикаль, hA/hB — горизонталь), а не от центра —
+// так точность не зависит от того, насколько точно тапнут центр (толстое
+// перекрестие тяжело поймать точно), а опирается на две тонкие риски.
+// Если известна только одна ось — вторая берётся изотропно (как раньше).
 function reticleScale(cal) {
-  if (!cal || cal.p0_x == null || cal.p1_x == null) return null;
-  const dx = cal.p1_x - cal.p0_x;
-  const dy = cal.p1_y - cal.p0_y;
-  const mh = cal.p1_mil_h || 0;
-  const mv = cal.p1_mil_v || 0;
-  let px_per_mil_h, px_per_mil_v;
-  if (mh !== 0) px_per_mil_h = dx / mh;
-  if (mv !== 0) px_per_mil_v = dy / mv;
+  if (!cal || cal.p0_x == null) return null;
+  let px_per_mil_v = null, px_per_mil_h = null;
+  if (cal.vA_x != null && cal.vB_x != null && cal.vA_mil != null && cal.vB_mil != null && cal.vA_mil !== cal.vB_mil) {
+    px_per_mil_v = (cal.vB_y - cal.vA_y) / (cal.vB_mil - cal.vA_mil);
+  }
+  if (cal.hA_x != null && cal.hB_x != null && cal.hA_mil != null && cal.hB_mil != null && cal.hA_mil !== cal.hB_mil) {
+    px_per_mil_h = (cal.hB_x - cal.hA_x) / (cal.hB_mil - cal.hA_mil);
+  }
   // если одна ось не задана — берём другую как изотропную
   if (px_per_mil_h == null && px_per_mil_v != null) px_per_mil_h = Math.abs(px_per_mil_v);
   if (px_per_mil_v == null && px_per_mil_h != null) px_per_mil_v = Math.abs(px_per_mil_h);
@@ -4139,17 +4168,17 @@ function openReticleCalHelpSheet() {
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Шаг за шагом</h4>
       <p><b>1. Загрузи фото сетки.</b> Через прицел (сфотографируй сетку крупно и ровно) или готовый PNG с сайта производителя прицела/сетки.</p>
-      <p><b>2. Тапни «Тап центра»</b> (уже выбрано первым) и укажи на фото точку, где реально пересекается перекрестие — это центр (появится зелёный кружок).</p>
-      <p><b>3. Тапни «Тап ссылочной точки»</b> и выбери на фото ЛЮБУЮ метку сетки, про которую ТОЧНО знаешь её реальное смещение от центра в mil — обычно это подписанная риска (производители обычно подписывают шаг: «5 mil», «2 mil» и т.д. — посмотри спецификацию сетки, если не помнишь).</p>
-      <p><b>4. Впиши это известное смещение</b> в поля ниже: «Ссыл. точка — от центра, mil (+D)» — сколько mil ВНИЗ (D) или вверх (U, если число отрицательное) от центра; «вбок (+R), mil» — сколько mil ВПРАВО (R) или влево (L, если отрицательное). Затем тапни саму метку на фото — появится оранжевый кружок.</p>
-      <p><b>5. Сохрани.</b> Готово — калибровка запомнена для этой сетки.</p>
+      <p><b>2. Тапни «Центр»</b> (уже выбрано первым) и укажи на фото точку, где реально пересекается перекрестие (появится зелёный крестик).</p>
+      <p><b>3. Тапни «Точка А, верт.»</b> — выбери на фото риску по вертикали, значение которой ТОЧНО известно (например, «1 mil» — производители обычно подписывают шаг, посмотри спецификацию сетки, если не помнишь), впиши это значение в поле рядом и тапни саму риску на фото.</p>
+      <p><b>4. Тапни «Точка Б, верт.»</b> — выбери ДРУГУЮ риску по той же вертикали, с другим известным значением (например, «1.5 mil»), впиши и тапни. Чем дальше друг от друга точки А и Б — тем точнее масштаб.</p>
+      <p><b>5. Если на сетке есть отдельные метки по горизонтали</b> (снос/ветер) — так же тапни «Точка А, гор.» и «Точка Б, гор.» с их известными значениями. Если горизонтальных рисок нет — пропусти, масштаб по горизонтали возьмётся таким же, как по вертикали.</p>
+      <p><b>6. Сохрани.</b> Готово — калибровка запомнена для этой сетки.</p>
 
-      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Как это считается</h4>
-      <p>Есть два тапа (два пикселя на фото) и известно реальное расстояние между ними в mil — из этого приложение вычисляет масштаб «сколько пикселей фото приходится на 1 mil». Дальше по этому масштабу можно перевести ЛЮБУЮ точку на фото в mil-координаты и наоборот.</p>
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Почему теперь ДВЕ точки на ось, а не одна от центра</h4>
+      <p>Раньше масштаб считался от центра до одной ссылочной точки — но точно тапнуть центр толстого перекрестия сложно, и любая ошибка тапа туда искажала весь расчёт (реальный случай: тапнули ровно на 8 mil, а расчёт показал 7.65 — разница из-за неточного центра). Теперь масштаб считается по расстоянию МЕЖДУ двумя рисками (А и Б) — обе тонкие и легко тапаются точно, а сама разница в mil между ними известна заранее. Центр по-прежнему нужен (чтобы правильно расположить метки на фото), но от его точности сам МАСШТАБ больше не зависит.</p>
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Совет по точности</h4>
-      <p>Выбирай ссылочную метку подальше от центра (больше пикселей между точками = точнее масштаб) и такую, значение которой ТОЧНО известно (лучше по официальной спецификации сетки, а не «на глаз»). Фото должно быть снято прямо, без перекоса — искажение угла камеры даёт ошибку в расчёте.</p>
-      <p><b>Частая ошибка:</b> если ссылочная точка смещена от центра только по ОДНОЙ оси (например, чисто вправо, без смещения вверх/вниз) — ВТОРОЕ поле обязательно должно быть 0. Если оставить там случайное число, масштаб по этой оси посчитается неверно, и метки на сетке съедут все в одну точку/полосу возле центра. Приложение подскажет («⚠️ Похоже на ошибку калибровки»), если после тапа масштаб по вертикали и горизонтали получился сильно разным — это почти всегда значит, что одно из двух mil-полей не соответствует реально тапнутой точке.</p>
+      <p>Выбирай точки А и Б подальше друг от друга (больше пикселей между ними = точнее масштаб) и такие, значения которых ТОЧНО известны (лучше по официальной спецификации сетки, а не «на глаз»). Фото должно быть снято прямо, без перекоса — искажение угла камеры даёт ошибку в расчёте. Приложение подскажет («⚠️ Похоже на ошибку калибровки»), если масштаб по вертикали и горизонтали получился сильно разным — почти всегда значит, что одно из mil-значений не соответствует реально тапнутой точке.</p>
     `;
     sheet.appendChild(body);
 
