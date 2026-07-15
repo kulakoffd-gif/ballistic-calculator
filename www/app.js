@@ -3974,6 +3974,11 @@ function renderReticleViewer(reticle, rows) {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
     ctx.drawImage(imgEl, 0, 0, targetCanvas.width, targetCanvas.height);
 
+    // первая фокальная плоскость: позиции меток масштабируются вместе с
+    // фото (x,y × mult), а РАЗМЕР самих значков/шрифта — нет, остаётся
+    // константным в пикселях (так же, как на схеме сетки ротора) — иначе
+    // при увеличении кружки и подписи раздуваются пропорционально и
+    // перекрывают всё вокруг вместо того, чтобы просто стать точнее видно.
     if (isMain) legend.innerHTML = '';
     rows.forEach((row, i) => {
       const px = sc.cx + (row.drift_mil || 0) * sc.hx;
@@ -3981,14 +3986,14 @@ function renderReticleViewer(reticle, rows) {
       const x = px * displayScale * mult, y = py * displayScale * mult;
       if (x < 0 || y < 0 || x > targetCanvas.width || y > targetCanvas.height) return;
       const color = colors[i % colors.length];
-      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2 * mult;
-      ctx.beginPath(); ctx.arc(x, y, 8 * mult, 0, 2 * Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y, 2 * mult, 0, 2 * Math.PI); ctx.fill();
-      ctx.font = `bold ${13 * mult}px monospace`;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 3 * mult;
-      ctx.strokeText(row.range + 'м', x + 12 * mult, y + 4 * mult);
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 8, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = 'bold 13px monospace';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+      ctx.strokeText(row.range + 'м', x + 12, y + 4);
       ctx.fillStyle = color;
-      ctx.fillText(row.range + 'м', x + 12 * mult, y + 4 * mult);
+      ctx.fillText(row.range + 'м', x + 12, y + 4);
       if (isMain) {
         legend.appendChild(el('div', { class: 'k', style: 'color:' + color }, '● ' + row.range + ' м'));
         legend.appendChild(el('div', { class: 'v' },
@@ -3997,20 +4002,20 @@ function renderReticleViewer(reticle, rows) {
     });
 
     if (marker) {
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * mult;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
       const m = marker;
       const mcx = m.cx * mult, mcy = m.cy * mult;
       ctx.beginPath();
-      ctx.moveTo(mcx - 12 * mult, mcy); ctx.lineTo(mcx + 12 * mult, mcy);
-      ctx.moveTo(mcx, mcy - 12 * mult); ctx.lineTo(mcx, mcy + 12 * mult);
+      ctx.moveTo(mcx - 12, mcy); ctx.lineTo(mcx + 12, mcy);
+      ctx.moveTo(mcx, mcy - 12); ctx.lineTo(mcx, mcy + 12);
       ctx.stroke();
-      ctx.beginPath(); ctx.arc(mcx, mcy, 14 * mult, 0, 2 * Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(mcx, mcy, 14, 0, 2 * Math.PI); ctx.stroke();
       const lbl = `≈ ${m.range} м`;
-      ctx.font = `bold ${14 * mult}px monospace`;
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 4 * mult;
-      ctx.strokeText(lbl, mcx + 18 * mult, mcy - 12 * mult);
+      ctx.font = 'bold 14px monospace';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 4;
+      ctx.strokeText(lbl, mcx + 18, mcy - 12);
       ctx.fillStyle = '#fff';
-      ctx.fillText(lbl, mcx + 18 * mult, mcy - 12 * mult);
+      ctx.fillText(lbl, mcx + 18, mcy - 12);
       if (isMain) subtensionLabel.textContent =
         `Точка сетки ≈ ${m.range} м · drop ${fmt(m.drop_mil,2)} mil · drift ${fmt(m.drift_mil,2)} mil`;
     } else if (isMain) {
