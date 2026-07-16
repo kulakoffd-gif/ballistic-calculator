@@ -3151,7 +3151,15 @@ route('/cartridges', async () => {
       navigate();
     } catch (e) { toast('Ошибка импорта: ' + e.message); }
   });
-  view.appendChild(el('div', { class: 'row' },
+  if (items.length === 0) view.appendChild(el('div', { class: 'banner' }, 'Создай первый профиль патрона — вручную или импортом файла (кнопка внизу списка).'));
+  for (const c of items) {
+    view.appendChild(el('a', { class: 'list-item', href: '#/cartridge/' + c.id },
+      el('div', { class: 'ttl' }, c.name || 'Без названия'),
+      el('div', { class: 'sub' }, `BC ${c.bc} ${c.dragModel || 'G1'} · V₀ ${c.v0} м/с · ${c.bulletMass_gr || '?'} gr`)
+    ));
+  }
+  // импорт/экспорт — редко нужные действия, держим внизу списка, не на виду при каждом заходе
+  view.appendChild(el('div', { class: 'row', style: 'margin-top:16px' },
     el('button', { type: 'button', class: 'btn ghost', onclick: () => importInput.click() }, '⬆ Импорт (CSV/JSON)'),
     el('button', { type: 'button', class: 'btn ghost', onclick: () => {
       if (!items.length) { toast('Нет патронов для экспорта'); return; }
@@ -3159,14 +3167,7 @@ route('/cartridges', async () => {
     }}, '⬇ Экспорт CSV')
   ));
   view.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin:2px 0 10px' },
-    'CSV — колонки name;caliber_in;mass_gr;len_in;bc_g1;bc_g7;v0 (можно и через запятую, порядок колонок любой — определяется по заголовку). Один патрон нужен только один из bc_g1/bc_g7.'));
-  if (items.length === 0) view.appendChild(el('div', { class: 'banner' }, 'Создай первый профиль патрона — вручную или импортом файла выше.'));
-  for (const c of items) {
-    view.appendChild(el('a', { class: 'list-item', href: '#/cartridge/' + c.id },
-      el('div', { class: 'ttl' }, c.name || 'Без названия'),
-      el('div', { class: 'sub' }, `BC ${c.bc} ${c.dragModel || 'G1'} · V₀ ${c.v0} м/с · ${c.bulletMass_gr || '?'} gr`)
-    ));
-  }
+    'CSV — колонки name;caliber_in;mass_gr;len_in;bc_g1;bc_g7;v0 (можно и через запятую, порядок колонок любой — определяется по заголовку). Одному патрону нужен только один из bc_g1/bc_g7.'));
   view.appendChild(el('a', { class: 'fab', href: '#/cartridge/new' }, '+'));
 });
 route('/cartridge/:id', async ({ id }) => {
