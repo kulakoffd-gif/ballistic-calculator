@@ -5123,13 +5123,18 @@ route('/settings', async () => {
     backupCard.appendChild(el('div', { class: 'banner' },
       'Каждое изменение автоматически дублируется в файл /storage/emulated/0/Documents/BalisticNote/backup.json. ' +
       'Этот файл переживает удаление приложения, поэтому при переустановке данные восстановятся одним тапом.'));
+    // Работает только в нативном APK (Capacitor Filesystem-плагин недоступен в
+    // браузере) — проверяем ДО вызова, чтобы вместо голого кода ошибки
+    // ('no-filesystem-plugin') пользователь увидел понятное объяснение.
     backupCard.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+      if (!window.Capacitor?.isNativePlatform?.()) { toast('Доступно только в Android-приложении (APK), не в браузере — используй «Экспорт JSON» выше'); return; }
       const r = await Backup.save();
       if (r.ok) toast(`Сохранено: ${r.size||'?'} байт`);
       else toast('Ошибка: ' + r.reason);
       refresh();
     }}, '💾 Сохранить бэкап сейчас'));
     backupCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+      if (!window.Capacitor?.isNativePlatform?.()) { toast('Доступно только в Android-приложении (APK), не в браузере — используй «Импорт JSON» выше'); return; }
       if (!confirm('Восстановить базу данных из /Documents/BalisticNote/backup.json?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
       const r = await Backup.restore();
       if (r.ok) { toast('Восстановлено (snapshot ' + (r.exportedAt?.slice(0,16) || '—') + ')'); navigate(); }
