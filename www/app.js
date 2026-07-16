@@ -3385,6 +3385,12 @@ const BULLET_PRESETS = [
   { name: 'Berger 200.20X Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 200.2, len_in: 1.508, bcG7: 0.328, bcG1: 0.640 },
   { name: 'Berger 215 Hybrid', cal: '.308', caliber_in: 0.308, mass_gr: 215, len_in: 1.598, bcG7: 0.354, bcG1: 0.691 },
   { name: 'Sierra MK 175 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.240, bcG7: 0.243, bcG1: 0.505 },
+  // взято из профиля пользователя в AB Quantum (AB Bullet Library): BC там
+  // 0.524 G1/0.269 G7 — заметно отличается от каталожного BC у самого Sierra
+  // для #2277 (G1≈0.545, G7≈0.277, sierrabullets.com) — вероятно, AB даёт
+  // свой доплеровски перепроверенный BC, а не сырую цифру производителя.
+  // Взяли значение AB (эталон проекта), не Sierra — см. WORKLOG при вопросах.
+  { name: 'Sierra MK 177 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 177, len_in: 1.322, bcG7: 0.269, bcG1: 0.524 },
   { name: 'Sierra MK 168 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.215, bcG7: 0.218, bcG1: 0.462 },
   { name: 'Sierra MK 220 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 220, len_in: 1.470, bcG7: 0.310, bcG1: 0.629 },
   { name: 'Hornady ELD-M 178', cal: '.308', caliber_in: 0.308, mass_gr: 178, len_in: 1.355, bcG7: 0.243, bcG1: 0.500 },
