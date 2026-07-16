@@ -3128,7 +3128,39 @@ route('/weapon/:id', async ({ id }) => {
 route('/cartridges', async () => {
   setHeader({ title: 'Патроны' });
   const items = await Store.getAll('cartridges');
-  if (items.length === 0) view.appendChild(el('div', { class: 'banner' }, 'Создай первый профиль патрона.'));
+  const importInput = el('input', { type: 'file', accept: '.csv,.json,text/csv,application/json,text/plain',
+    style: 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0' });
+  view.appendChild(importInput);
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files[0];
+    if (!file) return;
+    try {
+      const parsed = parseCartridgeImportText(await file.text());
+      if (!parsed.length) { toast('Не разобрал файл — проверь формат (см. подсказку под кнопками)'); return; }
+      let n = 0;
+      for (const p of parsed) {
+        if (!p.name) continue;
+        await Store.put('cartridges', {
+          name: p.name, dragModel: p.dragModel || 'G1', bc: p.bc,
+          v0: p.v0 ?? null, bulletMass_gr: p.bulletMass_gr ?? null,
+          bulletLength_in: p.bulletLength_in ?? null, caliber_in: p.caliber_in ?? null,
+        });
+        n++;
+      }
+      toast(`Импортировано патронов: ${n}`);
+      navigate();
+    } catch (e) { toast('Ошибка импорта: ' + e.message); }
+  });
+  view.appendChild(el('div', { class: 'row' },
+    el('button', { type: 'button', class: 'btn ghost', onclick: () => importInput.click() }, '⬆ Импорт (CSV/JSON)'),
+    el('button', { type: 'button', class: 'btn ghost', onclick: () => {
+      if (!items.length) { toast('Нет патронов для экспорта'); return; }
+      downloadText('cartridges.csv', cartridgesToCSV(items), 'text/csv');
+    }}, '⬇ Экспорт CSV')
+  ));
+  view.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin:2px 0 10px' },
+    'CSV — колонки name;caliber_in;mass_gr;len_in;bc_g1;bc_g7;v0 (можно и через запятую, порядок колонок любой — определяется по заголовку). Один патрон нужен только один из bc_g1/bc_g7.'));
+  if (items.length === 0) view.appendChild(el('div', { class: 'banner' }, 'Создай первый профиль патрона — вручную или импортом файла выше.'));
   for (const c of items) {
     view.appendChild(el('a', { class: 'list-item', href: '#/cartridge/' + c.id },
       el('div', { class: 'ttl' }, c.name || 'Без названия'),
@@ -3155,6 +3187,17 @@ route('/cartridge/:id', async ({ id }) => {
     f.caliber_in.value = b.caliber_in;
     toast('Заполнено: ' + b.name);
   })}, '📚 Выбрать из библиотеки'));
+  if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+    // Один патрон текстом (CSV-строка с заголовком) — можно отправить через
+    // системное «Поделиться» (мессенджер/почта/облако) или скопировать вручную;
+    // на другом устройстве принимается тем же «⬆ Импорт» на экране «Патроны».
+    const text = cartridgesToCSV([c]);
+    if (navigator.share) {
+      try { await navigator.share({ title: c.name || 'Патрон', text }); return; } catch { /* отмена — пробуем буфер */ }
+    }
+    try { await navigator.clipboard.writeText(text); toast('Скопировано в буфер — вставь в сообщение/почту'); }
+    catch { toast(text); }
+  }}, '📤 Поделиться патроном'));
   f.appendChild(el('div', { class: 'row' },
     numInput('bc', 'BC (lb/in²)', c.bc),
     selectInput('dragModel', 'Модель', c.dragModel || 'G1', [{value:'G1',label:'G1'},{value:'G7',label:'G7'}])
@@ -3417,6 +3460,103 @@ const BULLET_PRESETS = [
   // .50 BMG
   { name: 'Hornady A-MAX 750', cal: '.50 BMG', caliber_in: 0.510, mass_gr: 750, len_in: 2.290, bcG7: 0.515, bcG1: 1.050 },
 ];
+
+// ============== импорт/экспорт патронов: CSV или JSON ==============
+// CSV выбран как основной формат для МАССОВОГО ввода — открывается и
+// правится в Excel/Google Sheets без плясок, а не только у нас. Разделитель
+// (',' или ';') и десятичный знак (','/'.') определяются автоматически:
+// русская локаль Excel обычно экспортирует через ';' с запятой как десятичным
+// разделителем, английская — через ',' с точкой. JSON тоже принимается (для
+// «Поделиться одним патроном» и старого полного бэкапа из Настроек).
+function splitCsvLine(line, delim) {
+  const out = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+      else cur += ch;
+    } else if (ch === '"') { inQ = true; }
+    else if (ch === delim) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+const CSV_HEADER_MAP = {
+  name: ['name', 'название', 'имя', 'пуля', 'bullet'],
+  caliber_in: ['caliberin', 'caliber', 'калибр', 'диаметр', 'diameter'],
+  mass_gr: ['massgr', 'mass', 'масса', 'вес', 'weight', 'gr'],
+  len_in: ['lenin', 'length', 'lengthin', 'длина'],
+  bcG1: ['bcg1', 'g1', 'bc1'],
+  bcG7: ['bcg7', 'g7', 'bc7'],
+  v0: ['v0', 'v', 'скорость', 'velocity', 'muzzlevelocity'],
+};
+function matchCsvHeader(h) {
+  const norm = (h || '').toLowerCase().replace(/[^a-zа-я0-9]/g, '');
+  for (const [key, list] of Object.entries(CSV_HEADER_MAP)) {
+    if (list.includes(norm)) return key;
+  }
+  return null;
+}
+function parseCsvNum(s) {
+  if (s == null || s === '') return null;
+  const n = parseFloat(String(s).replace(',', '.').replace(/\s/g, ''));
+  return isFinite(n) ? n : null;
+}
+function parseCartridgesCSV(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const delim = (lines[0].split(';').length > lines[0].split(',').length) ? ';' : ',';
+  const keys = splitCsvLine(lines[0], delim).map(matchCsvHeader);
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvLine(lines[i], delim);
+    const row = {};
+    keys.forEach((k, idx) => { if (k) row[k] = cells[idx]; });
+    if (!row.name) continue;
+    const bcG1 = parseCsvNum(row.bcG1), bcG7 = parseCsvNum(row.bcG7);
+    if (bcG1 == null && bcG7 == null) continue;
+    out.push({
+      name: row.name,
+      caliber_in: parseCsvNum(row.caliber_in),
+      bulletMass_gr: parseCsvNum(row.mass_gr),
+      bulletLength_in: parseCsvNum(row.len_in),
+      bc: bcG7 != null ? bcG7 : bcG1,
+      dragModel: bcG7 != null ? 'G7' : 'G1',
+      v0: parseCsvNum(row.v0),
+    });
+  }
+  return out;
+}
+// Универсальный разбор текста файла/буфера: JSON (массив патронов, один
+// патрон, или {data:{cartridges:[...]}} — формат полного бэкапа) либо CSV.
+function parseCartridgeImportText(text) {
+  const t = (text || '').trim();
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try {
+      const j = JSON.parse(t);
+      if (Array.isArray(j)) return j;
+      if (j && Array.isArray(j.data?.cartridges)) return j.data.cartridges;
+      if (j && j.name) return [j];
+    } catch {}
+  }
+  return parseCartridgesCSV(t);
+}
+function cartridgesToCSV(items) {
+  const header = 'name;caliber_in;mass_gr;len_in;bc_g1;bc_g7;v0';
+  const rows = items.map(c => [
+    c.name || '', c.caliber_in ?? '', c.bulletMass_gr ?? '', c.bulletLength_in ?? '',
+    c.dragModel === 'G1' ? (c.bc ?? '') : '', c.dragModel === 'G7' ? (c.bc ?? '') : '', c.v0 ?? '',
+  ].join(';'));
+  return [header, ...rows].join('\n');
+}
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a', { href: url, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 // Не у всех пуль в библиотеке есть обе модели (напр. дешёвые FMJ часто только
 // с G1 от производителя, без публикуемого G7) — берём G7, если есть, иначе G1.
 function bestBC(b) {
