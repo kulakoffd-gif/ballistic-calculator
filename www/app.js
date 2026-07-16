@@ -3393,14 +3393,19 @@ const BULLET_PRESETS = [
   { name: 'Sierra MK 177 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 177, len_in: 1.322, bcG7: 0.269, bcG1: 0.524 },
   { name: 'Sierra MK 168 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.215, bcG7: 0.218, bcG1: 0.462 },
   { name: 'Sierra MK 220 HPBT', cal: '.308', caliber_in: 0.308, mass_gr: 220, len_in: 1.470, bcG7: 0.310, bcG1: 0.629 },
-  { name: 'Hornady ELD-M 178', cal: '.308', caliber_in: 0.308, mass_gr: 178, len_in: 1.355, bcG7: 0.243, bcG1: 0.500 },
+  // значения по AB Quantum пользователя (профиль "ELDM178 - 815")
+  { name: 'Hornady ELD-M 178', cal: '.308', caliber_in: 0.308, mass_gr: 178, len_in: 1.322, bcG7: 0.276, bcG1: 0.540 },
+  { name: 'Hornady ELD-M 195', cal: '.308', caliber_in: 0.308, mass_gr: 195, len_in: 1.449, bcG7: 0.308, bcG1: 0.603 },
   { name: 'Hornady ELD-M 208', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.493, bcG7: 0.315, bcG1: 0.648 },
+  { name: 'Hornady A-Tip 176', cal: '.308', caliber_in: 0.308, mass_gr: 176, len_in: 1.391, bcG7: 0.275, bcG1: 0.548 },
+  { name: 'Sierra Tipped MatchKing 195', cal: '.308', caliber_in: 0.308, mass_gr: 195, len_in: 1.465, bcG7: 0.298, bcG1: 0.581 },
+  { name: 'Lapua MaxRT 175', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.320, bcG7: 0.261, bcG1: 0.519 },
   { name: 'Lapua Scenar 167', cal: '.308', caliber_in: 0.308, mass_gr: 167, len_in: 1.236, bcG7: 0.222, bcG1: 0.470 },
   // добавлено из офиц. справочной таблицы bergerbullets.com/information/lines-and-designs/bullet-reference-charts (проверено)
   { name: 'Berger 155.5 FULLBORE Target', cal: '.308', caliber_in: 0.308, mass_gr: 155.5, len_in: 1.226, bcG7: 0.242, bcG1: 0.473 },
   { name: 'Berger 168 VLD Target', cal: '.308', caliber_in: 0.308, mass_gr: 168, len_in: 1.251, bcG7: 0.260, bcG1: 0.507 },
   { name: 'Berger 175 OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.261, bcG7: 0.263, bcG1: 0.512 },
-  { name: 'Berger 185 Juggernaut OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 185, len_in: 1.355, bcG7: 0.283, bcG1: 0.552 },
+  { name: 'Berger 185 Juggernaut OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 185, len_in: 1.346, bcG7: 0.284, bcG1: 0.555 }, // значения по AB Quantum пользователя (профиль "Jugger 185"), не bergerbullets.com
   { name: 'Berger 208 LR Hybrid Target', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.575, bcG7: 0.354, bcG1: 0.689 },
   // добавлено из профиля пользователя в AB Quantum (только G1 — производитель G7 не публикует)
   { name: 'БПЗ 11.5', cal: '.308', caliber_in: 0.308, mass_gr: 177, len_in: 1.240, bcG1: 0.310 },
