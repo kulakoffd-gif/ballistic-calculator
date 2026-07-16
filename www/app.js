@@ -2820,7 +2820,8 @@ route('/profile/:id', async ({ id }, query) => {
   const bulletSec = el('div', { style: 'margin-top:10px' });
   bulletSec.appendChild(el('h2', {}, '🔫 Bullet Data'));
   bulletSec.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openBulletLibrarySheet(b => {
-    f.bc.value = b.bcG7; f.dragModel.value = 'G7';
+    const { bc, dragModel } = bestBC(b);
+    f.bc.value = bc; f.dragModel.value = dragModel;
     f.bulletMass_gr.value = b.mass_gr; f.bulletLength_in.value = b.len_in; f.caliber_in.value = b.caliber_in;
     toast('Заполнено: ' + b.name);
   })}, '📚 Выбрать из библиотеки'));
@@ -3145,9 +3146,10 @@ route('/cartridge/:id', async ({ id }) => {
   const f = el('form', { class: 'card' });
   f.appendChild(textInput('name', 'Название', c.name, { required: true }));
   f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openBulletLibrarySheet(b => {
+    const { bc, dragModel } = bestBC(b);
     f.name.value = b.name;
-    f.bc.value = b.bcG7;
-    f.dragModel.value = 'G7';
+    f.bc.value = bc;
+    f.dragModel.value = dragModel;
     f.bulletMass_gr.value = b.mass_gr;
     f.bulletLength_in.value = b.len_in;
     f.caliber_in.value = b.caliber_in;
@@ -3394,6 +3396,8 @@ const BULLET_PRESETS = [
   { name: 'Berger 175 OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 175, len_in: 1.261, bcG7: 0.263, bcG1: 0.512 },
   { name: 'Berger 185 Juggernaut OTM Tactical', cal: '.308', caliber_in: 0.308, mass_gr: 185, len_in: 1.355, bcG7: 0.283, bcG1: 0.552 },
   { name: 'Berger 208 LR Hybrid Target', cal: '.308', caliber_in: 0.308, mass_gr: 208, len_in: 1.575, bcG7: 0.354, bcG1: 0.689 },
+  // добавлено из профиля пользователя в AB Quantum (только G1 — производитель G7 не публикует)
+  { name: 'БПЗ 11.5', cal: '.308', caliber_in: 0.308, mass_gr: 177, len_in: 1.240, bcG1: 0.310 },
   // .338
   { name: 'Berger 300 Hybrid', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.823, bcG7: 0.418, bcG1: 0.821 },
   { name: 'Sierra MK 300 HPBT', cal: '.338', caliber_in: 0.338, mass_gr: 300, len_in: 1.795, bcG7: 0.385, bcG1: 0.768 },
@@ -3402,6 +3406,11 @@ const BULLET_PRESETS = [
   // .50 BMG
   { name: 'Hornady A-MAX 750', cal: '.50 BMG', caliber_in: 0.510, mass_gr: 750, len_in: 2.290, bcG7: 0.515, bcG1: 1.050 },
 ];
+// Не у всех пуль в библиотеке есть обе модели (напр. дешёвые FMJ часто только
+// с G1 от производителя, без публикуемого G7) — берём G7, если есть, иначе G1.
+function bestBC(b) {
+  return (b.bcG7 != null) ? { bc: b.bcG7, dragModel: 'G7' } : { bc: b.bcG1, dragModel: 'G1' };
+}
 function openBulletLibrarySheet(applyFn) {
   openSheet((sheet, close) => {
     sheet.appendChild(el('h3', {}, 'Библиотека пуль'));
@@ -3421,7 +3430,8 @@ function openBulletLibrarySheet(applyFn) {
           onclick: () => { applyFn(b); close(); } });
         item.appendChild(el('div', { class: 'ttl' }, b.name));
         item.appendChild(el('div', { class: 'sub' },
-          `${b.cal} · ${b.mass_gr} gr · G7 ${b.bcG7} / G1 ${b.bcG1}`));
+          `${b.cal} · ${b.mass_gr} gr · ` +
+          [b.bcG7 != null && `G7 ${b.bcG7}`, b.bcG1 != null && `G1 ${b.bcG1}`].filter(Boolean).join(' / ')));
         list.appendChild(item);
       }
     }
