@@ -2686,6 +2686,7 @@ route('/calc-table', async () => {
 // Активный профиль хранит activeProfileId; при активации проставляет
 // activeWeaponId/activeCartridgeId (их читает /calc).
 route('/profiles', async () => {
+  backgroundSync();
   setHeader({ title: 'Профили' });
   const weapons = await Store.getAll('weapons');
   const cartridges = await Store.getAll('cartridges');
@@ -3051,6 +3052,7 @@ route('/quick-targets', async () => {
 });
 
 route('/weapons', async () => {
+  backgroundSync();
   setHeader({ title: 'Оружие' });
   const items = await Store.getAll('weapons');
   if (items.length === 0) view.appendChild(el('div', { class: 'banner' }, 'Создай первый профиль оружия.'));
@@ -3126,6 +3128,7 @@ route('/weapon/:id', async ({ id }) => {
 });
 
 route('/cartridges', async () => {
+  backgroundSync();
   setHeader({ title: 'Патроны' });
   const items = await Store.getAll('cartridges');
   const importInput = el('input', { type: 'file', accept: '.csv,.json,text/csv,application/json,text/plain',
@@ -6290,6 +6293,27 @@ route('/range-card', async () => {
   view.appendChild(out);
 });
 
+// Тихая фоновая синхронизация с Я.Диском (скачать → слить без потерь →
+// залить) — без постоянного таймера. Вызывается по конкретным поводам:
+// при запуске приложения, при возврате в вкладку/приложение, и при заходе
+// на экраны со списками общих данных (Патроны/Оружие/Профили) — именно
+// там устаревшие данные реально заметны. Не блокирует рендер (fire-and-
+// forget), молча перерисовывает текущий экран, если что-то реально
+// подтянулось. Использует тот же syncNow(), поэтому пока скачивание с
+// Я.Диска сломано на их стороне (см. YANDEX_API_DOWNLOAD_BROKEN) — просто
+// тихо ничего не находит (console.warn, без тостов), и заработает само,
+// как только Яндекс починит баг — никаких правок здесь не понадобится.
+function backgroundSync() {
+  if (!(window.Yadisk && Yadisk.isConfigured()) || !window.Backup) return;
+  Backup.syncNow().then(r => {
+    if (r.ok && r.merged && (r.merged.added || r.merged.updated || r.merged.deleted)) {
+      const m = r.merged;
+      toast(`Синхронизировано: +${m.added} ✎${m.updated} −${m.deleted}`);
+      navigate();
+    }
+  }).catch(e => console.warn('[background-sync]', e));
+}
+
 // ============== boot ==============
 (async () => {
   if (window.Backup) {
@@ -6299,28 +6323,14 @@ route('/range-card', async () => {
       //    первый рендер). Скачать → слить без потерь → залить. При изменениях —
       //    тост и перерисовка текущего экрана.
       if (window.Yadisk && Yadisk.isConfigured()) {
-        const applySyncResult = r => {
-          if (r.ok && r.merged && (r.merged.added || r.merged.updated || r.merged.deleted)) {
-            const m = r.merged;
-            toast(`Синхронизировано: +${m.added} ✎${m.updated} −${m.deleted}`);
-            navigate();
-          }
-        };
-        Backup.syncNow().then(applySyncResult).catch(e => console.warn('[boot/sync]', e));
-        // Периодический фоновый опрос, пока вкладка открыта и видна — чтобы
-        // изменения с другого устройства подтягивались сами, без похода в
-        // Настройки и нажатия кнопок. Использует ТОТ ЖЕ syncNow(), что и
-        // при изменении записей — ничего нового не ломает, если Я.Диск
-        // сейчас недоступен (см. YANDEX_API_DOWNLOAD_BROKEN), просто тихо
-        // не находит изменений (как и раньше — console.warn, без тостов),
-        // и сам заработает, как только Яндекс починит скачивание.
-        const AUTO_SYNC_INTERVAL_MS = 25000;
-        setInterval(() => {
-          if (document.hidden) return;
-          Backup.syncNow().then(applySyncResult).catch(e => console.warn('[auto-sync]', e));
-        }, AUTO_SYNC_INTERVAL_MS);
+        backgroundSync(); // разовая проверка при запуске
+        // Без постоянного таймера (лишняя нагрузка на батарею/CPU, когда
+        // просто лежит открытая вкладка) — только по реальным поводам:
+        // возврат в вкладку/приложение (тут) и заход на экраны со списками
+        // общих данных — Патроны/Оружие/Профили (см. backgroundSync() и его
+        // вызовы в соответствующих route()).
         document.addEventListener('visibilitychange', () => {
-          if (!document.hidden) Backup.syncNow().then(applySyncResult).catch(e => console.warn('[auto-sync/visible]', e));
+          if (!document.hidden) backgroundSync();
         });
       } else if (await Backup.isStoreEmpty()) {
         // 2. Облако не настроено, база пустая → предложить восстановить из /Documents
