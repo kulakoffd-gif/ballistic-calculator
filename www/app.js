@@ -5223,8 +5223,24 @@ route('/settings', async () => {
         refreshYD();
       } catch (e) { toast('Ошибка: ' + e.message); }
     }}, '↑ Залить на Я.Диск сейчас (перезапись)'));
+    // ВРЕМЕННО (см. WORKLOG.md): скачивание через API Яндекса сейчас упирается
+    // в баг НА ИХ СТОРОНЕ — presigned-ссылка на downloader.disk.yandex.ru
+    // содержит параметр is_direct_zip_experiment=1 (их собственный
+    // экспериментальный флаг) и сервер отвечает ERR_INVALID_RESPONSE —
+    // подтверждено на трёх разных устройствах/браузерах, с VPN и без,
+    // то есть не в сети и не в нашем коде. Пока это не починят у них —
+    // ведём сразу на disk.yandex.ru (без экспериментального параметра,
+    // штатный путь Яндекса), дальше пользователь жмёт «Скачать» там сам и
+    // «⬆ Импорт JSON» здесь. Чтобы вернуть автоматическую попытку через API —
+    // поставь false.
+    const YANDEX_API_DOWNLOAD_BROKEN = true;
     ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
       if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
+      if (YANDEX_API_DOWNLOAD_BROKEN) {
+        window.open('https://disk.yandex.ru/client/disk/BalisticNote', '_blank');
+        toast('Открыта папка на Диске — скачай backup.json кнопкой «Скачать» там, затем «⬆ Импорт JSON» выше на этой странице.');
+        return;
+      }
       if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
       // Открываем вкладку СРАЗУ (синхронно, прямо в ответ на тап) — Safari не
       // блокирует это как попап. Если понадобится обходной путь ниже, просто
