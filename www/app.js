@@ -5228,8 +5228,18 @@ route('/settings', async () => {
       if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
       try {
         const r = await Backup.restore('yandex');
-        if (r.ok) { toast('Восстановлено с Я.Диска'); navigate(); }
-        else toast('Ошибка: ' + r.reason);
+        if (r.ok) { toast('Восстановлено с Я.Диска'); navigate(); return; }
+        // Обходной путь: в Safari fetch() к файловому хранилищу Яндекса может
+        // быть заблокирован (CORS), хотя сам файл на месте — открываем прямую
+        // ссылку обычной навигацией (её CORS не касается), браузер скачает
+        // файл как обычно, дальше — «Импорт JSON» тем же файлом.
+        if (String(r.reason).includes('скачивание по ссылке')) {
+          const href = await Yadisk.getDownloadHref();
+          window.open(href, '_blank');
+          toast('Прямое чтение блокирует браузер — файл сейчас скачается как обычный файл. Открой его через «⬆ Импорт JSON» выше на этой странице.');
+          return;
+        }
+        toast('Ошибка: ' + r.reason);
       } catch (e) { toast('Ошибка: ' + e.message); }
     }}, '↓ Скачать и применить с Я.Диска'));
     ydCard.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: () => {

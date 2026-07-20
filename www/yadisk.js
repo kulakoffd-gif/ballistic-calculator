@@ -89,6 +89,16 @@ async function downloadJSON() {
   return r2.text();
 }
 
+// Только шаг 1 (временная ссылка на файл) — на случай, если сам fetch() по
+// ней блокируется браузером (см. downloadJSON). Открыть эту ссылку обычной
+// навигацией (window.open/location) СКАЧАЕТ файл как обычно — навигация не
+// подчиняется CORS в отличие от fetch(), так что это надёжный обходной путь.
+async function getDownloadHref() {
+  const r1 = await api(`/resources/download?path=${encodeURIComponent(REMOTE_FILE)}`);
+  const meta = await r1.json();
+  return meta.href;
+}
+
 // Метаданные файла бэкапа (или null если файла нет).
 async function statBackup() {
   try {
@@ -109,5 +119,5 @@ function getAuthUrl() {
 
 window.Yadisk = {
   getToken, setToken, getClientId, setClientId, isConfigured,
-  info, uploadJSON, downloadJSON, statBackup, getAuthUrl
+  info, uploadJSON, downloadJSON, statBackup, getAuthUrl, getDownloadHref
 };
