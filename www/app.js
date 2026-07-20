@@ -6299,13 +6299,29 @@ route('/range-card', async () => {
       //    первый рендер). Скачать → слить без потерь → залить. При изменениях —
       //    тост и перерисовка текущего экрана.
       if (window.Yadisk && Yadisk.isConfigured()) {
-        Backup.syncNow().then(r => {
+        const applySyncResult = r => {
           if (r.ok && r.merged && (r.merged.added || r.merged.updated || r.merged.deleted)) {
             const m = r.merged;
             toast(`Синхронизировано: +${m.added} ✎${m.updated} −${m.deleted}`);
             navigate();
           }
-        }).catch(e => console.warn('[boot/sync]', e));
+        };
+        Backup.syncNow().then(applySyncResult).catch(e => console.warn('[boot/sync]', e));
+        // Периодический фоновый опрос, пока вкладка открыта и видна — чтобы
+        // изменения с другого устройства подтягивались сами, без похода в
+        // Настройки и нажатия кнопок. Использует ТОТ ЖЕ syncNow(), что и
+        // при изменении записей — ничего нового не ломает, если Я.Диск
+        // сейчас недоступен (см. YANDEX_API_DOWNLOAD_BROKEN), просто тихо
+        // не находит изменений (как и раньше — console.warn, без тостов),
+        // и сам заработает, как только Яндекс починит скачивание.
+        const AUTO_SYNC_INTERVAL_MS = 25000;
+        setInterval(() => {
+          if (document.hidden) return;
+          Backup.syncNow().then(applySyncResult).catch(e => console.warn('[auto-sync]', e));
+        }, AUTO_SYNC_INTERVAL_MS);
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) Backup.syncNow().then(applySyncResult).catch(e => console.warn('[auto-sync/visible]', e));
+        });
       } else if (await Backup.isStoreEmpty()) {
         // 2. Облако не настроено, база пустая → предложить восстановить из /Documents
         if (await Backup.exists()) {
