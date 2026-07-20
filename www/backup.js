@@ -54,16 +54,19 @@ async function exists() {
 
 async function restore(source = 'auto') {
   // source: 'yandex' | 'local' | 'auto' (сначала Я.Диск, потом локальный)
-  let payload = null, from = null;
+  let payload = null, from = null, yandexError = null;
   if (source === 'yandex' || source === 'auto') {
-    payload = await downloadFromYandex();
-    if (payload) from = 'yandex';
+    const ry = await downloadFromYandex();
+    if (ry.data) { payload = ry.data; from = 'yandex'; }
+    else if (ry.error) yandexError = ry.error;
   }
   if (!payload && (source === 'local' || source === 'auto')) {
     payload = await read();
     if (payload) from = 'local';
   }
-  if (!payload || !payload.data) return { ok: false, reason: 'no-backup' };
+  // Настоящая причина (неверный токен, сеть и т.д.) важнее общего «нет бэкапа нигде» —
+  // без этого пользователь видел одно и то же 'no-backup' независимо от реальной проблемы.
+  if (!payload || !payload.data) return { ok: false, reason: yandexError || 'no-backup' };
   try {
     await Store.importAll(payload);
     return { ok: true, from, exportedAt: payload.exportedAt, version: payload.version };
@@ -94,14 +97,21 @@ async function uploadToYandex() {
   }
 }
 
+// Возвращает { data, error }. data=null+error=null значит «файла ещё нет на Диске»
+// (нормальное состояние при первой синхронизации) — отличаем это от РЕАЛЬНОЙ
+// ошибки (неверный/просроченный токен, сеть и т.п.), которую раньше здесь же
+// молча проглатывали (только console.warn, невидимый на реальном телефоне) —
+// из-за этого пользователь видел одинаковое «no-backup» независимо от причины.
 async function downloadFromYandex() {
-  if (!window.Yadisk || !Yadisk.isConfigured()) return null;
+  if (!window.Yadisk || !Yadisk.isConfigured()) return { data: null, error: 'нет токена Я.Диска' };
   try {
     const txt = await Yadisk.downloadJSON();
-    return JSON.parse(txt);
+    return { data: JSON.parse(txt), error: null };
   } catch (e) {
-    console.warn('[backup/yandex] download:', e.message);
-    return null;
+    const msg = e?.message || String(e);
+    if (/\b404\b/.test(msg)) return { data: null, error: null };
+    console.warn('[backup/yandex] download:', msg);
+    return { data: null, error: msg };
   }
 }
 
@@ -115,8 +125,11 @@ async function syncNow() {
   syncing = true;
   try {
     const remote = await downloadFromYandex();
+    // Настоящая ошибка чтения (не «файла ещё нет») — не заливаем поверх
+    // локальные данные вслепую, иначе можно молча затереть реальный бэкап.
+    if (remote.error) return { ok: false, reason: remote.error };
     let merged = null;
-    if (remote && remote.data) merged = await Store.mergeAll(remote);
+    if (remote.data && remote.data.data) merged = await Store.mergeAll(remote.data);
     const payload = await Store.exportAll();
     await Yadisk.uploadJSON(JSON.stringify(payload));
     return { ok: true, merged };

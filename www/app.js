@@ -2927,7 +2927,7 @@ route('/profile/:id', async ({ id }, query) => {
     localStorage.setItem('activeWeaponId', saved.weaponId || '');
     localStorage.setItem('activeCartridgeId', saved.cartridgeId || '');
     toast('Профиль сохранён и активен');
-    location.hash = '#/profiles';
+    history.back();
   });
   view.appendChild(f);
 });
@@ -3120,7 +3120,7 @@ route('/weapon/:id', async ({ id }) => {
     const d = readForm(f);
     d.twistRight = d.twistRight !== 'false';
     await Store.put('weapons', { ...w, ...d });
-    toast('Сохранено'); location.hash = '#/weapons';
+    toast('Сохранено'); history.back();
   });
   view.appendChild(f);
 });
@@ -3396,7 +3396,7 @@ route('/cartridge/:id', async ({ id }) => {
       }
     }
     await Store.put('cartridges', { ...c, ...d, customDrag: cdm.length >= 2 ? cdm : null });
-    toast('Сохранено'); location.hash = '#/cartridges';
+    toast('Сохранено'); history.back();
   });
   view.appendChild(f);
 });
@@ -4024,7 +4024,7 @@ route('/reticle/:id', async ({ id }) => {
       }
     }
     await Store.put('reticles', { ...r, ...d, cal });
-    toast('Сохранено'); location.hash = '#/reticles';
+    toast('Сохранено'); history.back();
   }}, 'Сохранить'));
   if (!isNew) buttons.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
     if (confirm('Удалить?')) { await Store.del('reticles', id); location.hash = '#/reticles'; }
@@ -5398,6 +5398,16 @@ route('/caseprep/:id', async ({ id }) => {
     el('span', { class: 'lbl' }, 'Отжиг шейки выполнен')
   ));
   f.appendChild(el('hr'));
+  f.appendChild(el('h2', {}, 'Гильза и капсюль'));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('caseBrand', 'Гильза (бренд/модель)', cp.caseBrand),
+    numInput('caseLot', 'Партия гильз', cp.caseLot)
+  ));
+  f.appendChild(el('div', { class: 'row' },
+    textInput('primerBrand', 'Капсюль (бренд/модель)', cp.primerBrand),
+    numInput('primerLot', 'Партия капсюлей', cp.primerLot)
+  ));
+  f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Матрицы и геометрия'));
   f.appendChild(el('div', { class: 'row' },
     textInput('fl_die', 'FL-die (бренд/модель)', cp.fl_die),
@@ -5448,7 +5458,7 @@ route('/caseprep/:id', async ({ id }) => {
     e.preventDefault();
     const d = readForm(f);
     await Store.put('casePreps', { ...cp, ...d, targetImageDataUrl: pendingTargetImage });
-    toast('Сохранено'); location.hash = '#/casepreps';
+    toast('Сохранено'); history.back();
   });
   view.appendChild(f);
 });
@@ -5543,7 +5553,7 @@ route('/note/:id', async ({ id }) => {
     delete d.tagsRaw;
     if (!d.attachedType) { d.attachedType = null; d.attachedId = null; }
     await Store.put('notes', { ...n, ...d });
-    toast('Сохранено'); location.hash = '#/notes';
+    toast('Сохранено'); history.back();
   });
   view.appendChild(f);
 });
@@ -6048,7 +6058,7 @@ route('/stage/:id', async ({ id }) => {
     e.preventDefault();
     const d = readForm(f);
     await Store.put('stages', { ...s, ...d, targets });
-    toast('Сохранено'); location.hash = '#/stages';
+    toast('Сохранено'); history.back();
   });
   view.appendChild(f);
 });
