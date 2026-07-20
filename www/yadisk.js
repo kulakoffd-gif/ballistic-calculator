@@ -65,12 +65,27 @@ async function uploadJSON(jsonString) {
   return { ok: true, size: jsonString.length };
 }
 
-// Скачать JSON-строку из /BalisticNote/backup.json
+// Скачать JSON-строку из /BalisticNote/backup.json.
+// Два разных сетевых запроса: 1) к API Яндекса — получить временную ссылку
+// на файл; 2) GET по этой ссылке (уже другой домен, файловое хранилище).
+// Раньше при сбое любого из них терялось, КАКОЙ именно шаг не прошёл (Safari
+// на сетевых ошибках выдаёт голое «Load failed» без деталей) — оборачиваем
+// оба шага отдельно, чтобы сообщение об ошибке указывало конкретный этап.
 async function downloadJSON() {
-  const r1 = await api(`/resources/download?path=${encodeURIComponent(REMOTE_FILE)}`);
-  const meta = await r1.json();
-  const r2 = await fetch(meta.href);
-  if (!r2.ok) throw new Error(`download GET ${r2.status}`);
+  let meta;
+  try {
+    const r1 = await api(`/resources/download?path=${encodeURIComponent(REMOTE_FILE)}`);
+    meta = await r1.json();
+  } catch (e) {
+    throw new Error('получение ссылки на файл: ' + (e?.message || e));
+  }
+  let r2;
+  try {
+    r2 = await fetch(meta.href);
+  } catch (e) {
+    throw new Error('скачивание по ссылке (файловое хранилище): ' + (e?.message || e));
+  }
+  if (!r2.ok) throw new Error(`скачивание по ссылке: HTTP ${r2.status}`);
   return r2.text();
 }
 
