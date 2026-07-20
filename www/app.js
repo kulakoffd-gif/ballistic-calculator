@@ -5226,21 +5226,29 @@ route('/settings', async () => {
     ydCard.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async () => {
       if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
       if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
+      // Открываем вкладку СРАЗУ (синхронно, прямо в ответ на тап) — Safari не
+      // блокирует это как попап. Если понадобится обходной путь ниже, просто
+      // подставим в неё нужный адрес; если не понадобится — закроем пустую.
+      // (Раньше window.open() вызывался только В САМОМ обходном пути, уже
+      // после нескольких await — к этому моменту Safari теряет связь с тапом
+      // пользователя и блокирует попап.)
+      const popup = window.open('', '_blank');
       try {
         const r = await Backup.restore('yandex');
-        if (r.ok) { toast('Восстановлено с Я.Диска'); navigate(); return; }
+        if (r.ok) { popup && popup.close(); toast('Восстановлено с Я.Диска'); navigate(); return; }
         // Обходной путь: в Safari fetch() к файловому хранилищу Яндекса может
         // быть заблокирован (CORS), хотя сам файл на месте — открываем прямую
         // ссылку обычной навигацией (её CORS не касается), браузер скачает
         // файл как обычно, дальше — «Импорт JSON» тем же файлом.
         if (String(r.reason).includes('скачивание по ссылке')) {
           const href = await Yadisk.getDownloadHref();
-          window.open(href, '_blank');
+          if (popup) popup.location.href = href; else window.open(href, '_blank');
           toast('Прямое чтение блокирует браузер — файл сейчас скачается как обычный файл. Открой его через «⬆ Импорт JSON» выше на этой странице.');
           return;
         }
+        popup && popup.close();
         toast('Ошибка: ' + r.reason);
-      } catch (e) { toast('Ошибка: ' + e.message); }
+      } catch (e) { popup && popup.close(); toast('Ошибка: ' + e.message); }
     }}, '↓ Скачать и применить с Я.Диска'));
     ydCard.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: () => {
       if (!confirm('Удалить локальные настройки Я.Диска (токен и client_id)?')) return;
