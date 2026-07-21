@@ -2342,6 +2342,11 @@ route('/calc', async () => {
     localStorage.setItem('calc:last', JSON.stringify(d));
     const distances = (d.distances || '').split(/[,\s]+/).map(s=>parseFloat(s)).filter(x=>x>0);
     flashZeroReminder(distances.join('|'));
+    // Раньше необработанное исключение где угодно ниже (например, на новом
+    // патроне/оружии с неожиданной комбинацией полей) молча обрывало весь
+    // расчёт без единого объяснения — калькулятор просто «пропадал» с
+    // экрана. Теперь любая ошибка здесь превращается в понятный баннер.
+    try {
     const c = cartridges.find(x => x.id === d.cartridgeId);
     const w = weapons.find(x => x.id === d.weaponId);
     const rezeroed = c ? await ensureScopeChoice(c) : true;
@@ -2368,11 +2373,32 @@ route('/calc', async () => {
       latitude_deg: d.latitude_deg, azimuth_deg: d.azimuth_deg,
       steps: distances
     };
-    const res = Ballistics.solve(input);
     const out = $('#result');
     out.innerHTML = '';
     const outX = $('#calc-extra');
     if (outX) outX.innerHTML = '';
+    // Без V₀/BC/дистанций solve() может вернуть пустой rows — раньше это
+    // приводило к необработанному исключению на res.rows[...].range чуть
+    // ниже, и весь расчёт молча пропадал с экрана без единого объяснения
+    // (например, у нового патрона из библиотеки пуль V₀ не задан — библиотека
+    // даёт только BC/массу/длину, V₀ всегда вводится отдельно).
+    if (!(input.v0 > 0)) {
+      out.appendChild(el('div', { class: 'banner' }, '⚠️ Не задана начальная скорость V₀ — впиши её на вкладке «Пуля» (библиотека пуль её не заполняет).'));
+      return;
+    }
+    if (!(input.bc > 0) && input.dragModel !== 'CUSTOM') {
+      out.appendChild(el('div', { class: 'banner' }, '⚠️ Не задан баллистический коэффициент (BC) — выбери пулю из библиотеки или впиши BC вручную.'));
+      return;
+    }
+    if (!distances.length) {
+      out.appendChild(el('div', { class: 'banner' }, '⚠️ Список дистанций пуст — заполни «Дистанции для таблицы» на вкладке «Прочее».'));
+      return;
+    }
+    const res = Ballistics.solve(input);
+    if (!res.rows || !res.rows.length) {
+      out.appendChild(el('div', { class: 'banner' }, '⚠️ Не удалось посчитать ни одной точки — проверь V₀, BC и дистанции.'));
+      return;
+    }
     // применяем сдвиг ко всем строкам + SSF (масштаб барабанов)
     for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (w) applySSF(row, w); }
 
@@ -2613,6 +2639,15 @@ route('/calc', async () => {
       paramDet.appendChild(el('summary', {}, '🌡 Атмосфера и баллистика'));
       paramDet.appendChild(paramCard);
       outX.appendChild(paramDet);
+    }
+    } catch (err) {
+      // out/outX объявлены через const ВНУТРИ try — тут недоступны, берём заново.
+      console.error('[calc/submit]', err);
+      const outErr = $('#result');
+      if (outErr) {
+        outErr.innerHTML = '';
+        outErr.appendChild(el('div', { class: 'banner' }, '⚠️ Ошибка расчёта: ' + err.message + '. Проверь данные оружия/патрона (V₀, BC, твист, дистанции).'));
+      }
     }
   });
 
