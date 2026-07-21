@@ -118,6 +118,25 @@ function solverWindAngle(windToDirDeg, shotAzimuthDeg) {
 // ============== compass SVG ==============
 // fireDir (опц.) — азимут направления огня (gray стрелка). Если задан, рисуется
 // вторая «фоновая» стрелка-винтовка для ориентира.
+// Кратчайшее угловое расстояние между a и b (0..180).
+function angDist(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+// Крупная подсказка значения поверх экрана на время перетаскивания стрелки —
+// иначе палец закрывает собой цифры в центре циферблата, пока тянешь.
+// Один переиспользуемый элемент на всё приложение (создаётся при первом обращении).
+let _dragReadoutEl = null;
+function dragReadout(text) {
+  if (text == null) { if (_dragReadoutEl) _dragReadoutEl.style.display = 'none'; return; }
+  if (!_dragReadoutEl) {
+    _dragReadoutEl = document.createElement('div');
+    _dragReadoutEl.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + 10px);left:50%;' +
+      'transform:translateX(-50%);z-index:9999;background:rgba(10,14,20,.92);color:#ff8b3d;' +
+      'font-size:40px;font-weight:700;padding:6px 24px;border-radius:14px;pointer-events:none;' +
+      'letter-spacing:1px;box-shadow:0 6px 20px rgba(0,0,0,.4);font-variant-numeric:tabular-nums;';
+    document.body.appendChild(_dragReadoutEl);
+  }
+  _dragReadoutEl.style.display = 'block';
+  _dragReadoutEl.textContent = text;
+}
 function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ' }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
@@ -237,10 +256,28 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
   // Направление меняется ТОЛЬКО перетаскиванием, не одиночным щелчком —
   // иначе случайный тап по противоположной от стрелки стороне циферблата
   // мгновенно перекидывал её туда.
-  let drag = false;
-  function onDown(e) { drag = true; e.preventDefault(); }
-  function onMove(e) { if (drag) { setAngle(angleAt(e)); e.preventDefault(); } }
-  function onUp() { drag = false; }
+  // dragParity: угол пальца всегда пересчитывается напрямую в положение
+  // ОСТРИЯ (angleAt возвращает «сырое» направление на палец) — если
+  // схватить за ХВОСТ и потянуть, острие «прыгало» бы под палец, и хвост
+  // с остриём визуально менялись местами. Фикс: в момент захвата определяем,
+  // ближе ли текущее направление к сырому углу пальца или к углу+180° —
+  // и держим этот же сдвиг (0 или 180) всю СЕССИЮ перетаскивания, чтобы
+  // именно тот конец, за который взялись, оставался под пальцем.
+  let drag = false, dragParity = 0;
+  function onDown(e) {
+    drag = true;
+    const raw = angleAt(e);
+    dragParity = angDist((raw + 180) % 360, value) < angDist(raw, value) ? 180 : 0;
+    dragReadout(Math.round(value) + '°');
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!drag) return;
+    setAngle(angleAt(e) + dragParity);
+    dragReadout(Math.round(value) + '°');
+    e.preventDefault();
+  }
+  function onUp() { drag = false; dragReadout(null); }
   svg.addEventListener('mousedown', onDown);
   svg.addEventListener('touchstart', onDown, { passive: false });
   window.addEventListener('mousemove', onMove);
@@ -356,10 +393,23 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
   // иначе случайный тап по противоположной от стрелки стороне циферблата
   // мгновенно перекидывал её туда. mousedown/touchstart только начинает
   // жест; сам угол выставляется в onMove, пока палец/курсор реально едет.
-  let drag = false;
-  function onDown(e) { drag = true; e.preventDefault(); }
-  function onMove(e) { if (drag) { setAngleRaw(angleAt(e)); e.preventDefault(); } }
-  function onUp() { drag = false; }
+  // dragParity — см. подробный комментарий в createCompass(): без этого
+  // хвост и остриё визуально менялись местами при захвате за хвост.
+  let drag = false, dragParity = 0;
+  function onDown(e) {
+    drag = true;
+    const raw = angleAt(e);
+    dragParity = angDist((raw + 180) % 360, currentAng) < angDist(raw, currentAng) ? 180 : 0;
+    dragReadout(centerNum.textContent);
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!drag) return;
+    setAngleRaw(angleAt(e) + dragParity);
+    dragReadout(centerNum.textContent);
+    e.preventDefault();
+  }
+  function onUp() { drag = false; dragReadout(null); }
   bg.style.cursor = 'grab';
   svg.addEventListener('mousedown', onDown);
   svg.addEventListener('touchstart', onDown, { passive: false });
