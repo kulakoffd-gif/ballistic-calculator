@@ -28,6 +28,13 @@ function el(tag, attrs = {}, ...children) {
   return n;
 }
 function fmt(n, d = 1) { return (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(d); }
+// Как fmt(), но всегда с явным знаком (toFixed сам не ставит «+» у положительных) —
+// для журналов правок, где важно однозначно видеть увеличили/уменьшили, а не гадать.
+function signedMil(n, d = 2) {
+  if (n == null || !isFinite(n)) return '—';
+  const v = Number(n);
+  return (v > 0 ? '+' : '') + v.toFixed(d);
+}
 function toast(msg) {
   const t = el('div', { class: 'toast' }, msg);
   document.body.appendChild(t);
@@ -3311,11 +3318,18 @@ route('/profile/:id', async ({ id }, query) => {
     const spotList = (cFull.spotCorrections || []).slice().sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
     if (spotList.length) {
       const { vert: totV, horiz: totH } = spotCorrTotal(cFull);
+      // Знак — относительно того, что ПЕРВОНАЧАЛЬНО дал калькулятор: минус —
+      // мы уменьшили его поправку (пуля ушла в сторону подкрутки — калькулятор
+      // перебрал), плюс — увеличили (пуля не долетела до подкрутки — калькулятор
+      // недобрал). Именно поэтому знак здесь — это -vertMil/-horizMil (та же
+      // дельта, что applySpotCorrection реально вычитает из drop_mil/drift_mil),
+      // а не сырое «куда ушла пуля» из sheet'а — так не нужно потом гадать.
       spotSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
-        `Итого применяется ко всем расчётам: V ${fmt(totV,2)}, H ${fmt(totH,2)} mil (сумма записей ниже).`));
+        `Итого применяется ко всем расчётам: V ${signedMil(-totV)}, H ${signedMil(-totH)} mil (минус — уменьшили поправку калькулятора, плюс — увеличили).`));
       for (const s of spotList) {
+        const dV = -(s.vertMil || 0), dH = -(s.horizMil || 0);
         spotSec.appendChild(el('div', { class: 'option' },
-          el('span', {}, `${s.dist ?? '—'} м · V ${fmt(s.vertMil,2)} / H ${fmt(s.horizMil,2)} mil`),
+          el('span', {}, `${s.dist ?? '—'} м · поправка V ${signedMil(dV)} / H ${signedMil(dH)} mil`),
           el('span', { class: 'meta' }, s.addedAt ? new Date(s.addedAt).toLocaleDateString('ru-RU') : ''),
           el('span', { class: 'ico', style: 'width:auto;font-size:18px;cursor:pointer', onclick: async () => {
             if (!confirm('Отменить эту поправку?')) return;
