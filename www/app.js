@@ -873,6 +873,35 @@ function applyCartridgeOffset(row, cart, rezeroed) {
   row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
   return row;
 }
+// Поправка по промаху (sheet «Промах — пересчитать поправку» в /calc) —
+// отдельное, независимое от сдвига базового патрона поле: та фича — про
+// разницу зануления МЕЖДУ патронами одного оружия, эта — про эмпирическую
+// поправку ОДНОГО патрона по факту промаха. Список отдельных записей
+// (cart.spotCorrections = [{id, vertMil, horizMil, dist, addedAt}, ...]),
+// а не одно накопленное число — чтобы можно было отменить ОДНУ конкретную
+// правку (в профиле пули), если она оказалась ошибочной, не сбрасывая все
+// остальные. Итоговая поправка — сумма всех записей. Раньше sheet считал
+// новую поправку, но никуда её не сохранял — «показывает отклонение,
+// выходишь — всё как было».
+function spotCorrTotal(cart) {
+  const list = cart?.spotCorrections || [];
+  return {
+    vert: list.reduce((s, x) => s + (x.vertMil || 0), 0),
+    horiz: list.reduce((s, x) => s + (x.horizMil || 0), 0),
+  };
+}
+function applySpotCorrection(row, cart) {
+  if (!row || !cart) return row;
+  const { vert: dv, horiz: dh } = spotCorrTotal(cart);
+  if (!dv && !dh) return row;
+  row.drop_mil  = (row.drop_mil  || 0) - dv;
+  row.drift_mil = (row.drift_mil || 0) - dh;
+  row.drop_moa  = row.drop_mil  * 3.438;
+  row.drift_moa = row.drift_mil * 3.438;
+  row.drop_m  = row.range > 0 ? -row.drop_mil  / 1000 * row.range : 0;
+  row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
+  return row;
+}
 
 // Sight Scale Factor — калибровка масштаба барабанов прицела (как в AB Ballistic
 // Calibration → DSF). Корректирует конечную поправку, если барабан реально даёт
@@ -2708,7 +2737,7 @@ route('/calc', async () => {
       return;
     }
     // применяем сдвиг ко всем строкам + SSF (масштаб барабанов)
-    for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (w) applySSF(row, w); }
+    for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (c) applySpotCorrection(row, c); if (w) applySSF(row, w); }
 
     // плашка о применённом сдвиге, если есть
     if (c && !c.isBase && !rezeroed && (c.offsetVertMil || c.offsetHorizMil)) {
@@ -2731,7 +2760,8 @@ route('/calc', async () => {
     const spotBtn = el('button', { type: 'button', class: 'spot-btn',
       onclick: () => {
         const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
-        if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist);
+        if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist, c,
+          () => form.dispatchEvent(new Event('submit')));
       } }, '🎯 Промах — пересчитать поправку');
     const detailStrip = el('div', { class: 'hud-detail' });
     // панель вида «Сетка» (по умолчанию скрыта)
@@ -2775,6 +2805,7 @@ route('/calc', async () => {
       const row = r2.rows[0];
       if (row) row.mach = r2.speedOfSound ? row.vel_mps / r2.speedOfSound : null;
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
+      if (row && c) applySpotCorrection(row, c);
       if (row && w) applySSF(row, w);
       return row;
     }
@@ -3270,6 +3301,35 @@ route('/profile/:id', async ({ id }, query) => {
     }
     dsfSec.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => openTruingSheet(cFull) }, '🎯 Добавить точку калибровки'));
     f.appendChild(dsfSec);
+
+    // === 🎯 Поправки по фактическому попаданию (из «Промах» в /calc) ===
+    // Каждая запись — отдельный промах, по которому пересчитывалась поправка;
+    // хранятся списком (не одним накопленным числом), чтобы конкретную
+    // ошибочную запись можно было отменить (× ниже), не сбрасывая остальные.
+    const spotSec = el('div', { style: 'margin-top:10px' });
+    spotSec.appendChild(el('h2', {}, '🎯 Поправки по попаданию'));
+    const spotList = (cFull.spotCorrections || []).slice().sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
+    if (spotList.length) {
+      const { vert: totV, horiz: totH } = spotCorrTotal(cFull);
+      spotSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
+        `Итого применяется ко всем расчётам: V ${fmt(totV,2)}, H ${fmt(totH,2)} mil (сумма записей ниже).`));
+      for (const s of spotList) {
+        spotSec.appendChild(el('div', { class: 'option' },
+          el('span', {}, `${s.dist ?? '—'} м · V ${fmt(s.vertMil,2)} / H ${fmt(s.horizMil,2)} mil`),
+          el('span', { class: 'meta' }, s.addedAt ? new Date(s.addedAt).toLocaleDateString('ru-RU') : ''),
+          el('span', { class: 'ico', style: 'width:auto;font-size:18px;cursor:pointer', onclick: async () => {
+            if (!confirm('Отменить эту поправку?')) return;
+            cFull.spotCorrections = (cFull.spotCorrections || []).filter(x => x.id !== s.id);
+            await Store.put('cartridges', cFull);
+            toast('Поправка отменена');
+            navigate();
+          } }, '×')
+        ));
+      }
+    } else {
+      spotSec.appendChild(el('div', { class: 'muted', style: 'font-size:12px' }, 'Пока ни одной записи — появятся после «🎯 Промах» на экране калькулятора.'));
+    }
+    f.appendChild(spotSec);
   }
 
   // === 📝 Notes ===
@@ -6101,12 +6161,24 @@ route('/atmo-presets', async () => {
 });
 
 // ============== SPOTTING CORRECTIONS (Wave 3.2) — sheet, вызывается из /calc ==============
-function openSpottingSheet(currentDropMil, currentDriftMil, dist) {
+// cart — активный патрон (для сохранения записи в cart.spotCorrections[],
+// см. applySpotCorrection/spotCorrTotal выше); onSave — коллбэк, форсирующий
+// пересчёт HUD после сохранения (обычно form.dispatchEvent(new Event('submit'))).
+// Раньше здесь только показывался пересчёт, кнопки «Сохранить» не было вообще —
+// значения нигде не сохранялись, при закрытии sheet всё пропадало без следа.
+// Список (а не одно накопленное число) — чтобы конкретную ошибочную запись
+// можно было отменить отдельно в профиле пули, не сбрасывая остальные.
+function openSpottingSheet(currentDropMil, currentDriftMil, dist, cart, onSave) {
   openSheet((sheet, close) => {
     sheet.appendChild(el('h3', {}, 'Промах — поправка'));
     sheet.appendChild(el('div', { class: 'sub' }, `Дистанция ${dist} м, текущая поправка V ${fmt(currentDropMil,2)} mil, H ${fmt(currentDriftMil,2)} mil`));
     sheet.appendChild(el('div', { class: 'banner' },
       'Куда УШЛА пуля относительно цели. ВВЕРХ +, ВНИЗ −, ВПРАВО +, ВЛЕВО −. Приложение посчитает новую поправку.'));
+    const { vert: savedV, horiz: savedH } = spotCorrTotal(cart);
+    if (cart && (savedV || savedH)) {
+      sheet.appendChild(el('div', { class: 'banner accent' },
+        `Уже сохранены поправки по прошлым промахам: V ${fmt(savedV,2)}, H ${fmt(savedH,2)} mil — новая добавится к ним. Список всех записей — в профиле пули.`));
+    }
     sheet.appendChild(el('div', { class: 'row' },
       numInput('vertMissMil', 'Вертикаль (mil)', 0, { step: '0.1' }),
       numInput('horizMissMil', 'Горизонталь (mil)', 0, { step: '0.1' })
@@ -6127,6 +6199,24 @@ function openSpottingSheet(currentDropMil, currentDriftMil, dist) {
     }
     sheet.addEventListener('input', recalc);
     recalc();
+    if (cart) {
+      sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+        const d = readForm(sheet);
+        if (!d.vertMissMil && !d.horizMissMil) { toast('Укажи, куда ушла пуля'); return; }
+        // мутируем cart НА МЕСТЕ (не просто {...cart, ...}) — это тот же объект,
+        // что уже держит в замыкании форма /calc (переменная `c`); иначе после
+        // Store.put расчёт на экране продолжал бы использовать старые, ещё не
+        // сохранённые значения вплоть до полной перезагрузки страницы.
+        cart.spotCorrections = [...(cart.spotCorrections || []), {
+          id: Store.uid(), vertMil: d.vertMissMil || 0, horizMil: d.horizMissMil || 0,
+          dist, addedAt: new Date().toISOString(),
+        }];
+        await Store.put('cartridges', cart);
+        toast('Поправка сохранена — применена ко всем расчётам этого патрона');
+        close();
+        if (onSave) onSave();
+      } }, '💾 Сохранить поправку'));
+    }
     sheet.appendChild(el('div', { class: 'row-btn' },
       el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Закрыть')
     ));
