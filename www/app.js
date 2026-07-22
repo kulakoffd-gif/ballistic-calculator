@@ -5766,7 +5766,24 @@ route('/settings', async () => {
       if (!Yadisk.isConfigured()) { toast('Сначала введи токен и проверь'); return; }
       if (YANDEX_API_DOWNLOAD_BROKEN) {
         window.open('https://disk.yandex.ru/client/disk/BalisticNote', '_blank');
-        toast('Открыта папка на Диске — скачай backup.json кнопкой «Скачать» там, затем «⬆ Импорт JSON» выше на этой странице.');
+        // Раньше здесь была только toast-подсказка — она гасла за ~2 сек, а
+        // именно в этот момент фокус и так уходит на новую открывшуюся
+        // вкладку Я.Диска, так что пользователь её физически не видел и
+        // оставался «на странице Диска с файлом и непонятно что дальше».
+        // Теперь — постоянная подсказка-sheet с шагами и кнопкой, которая
+        // прямо здесь открывает тот же выбор файла, что «⬆ Импорт JSON»
+        // ниже — не нужно после скачивания ещё и искать нужную кнопку.
+        openSheet((sheet, close) => {
+          sheet.appendChild(el('h3', {}, 'Скачивание с Я.Диска — 2 шага'));
+          sheet.appendChild(el('div', { class: 'banner accent' },
+            'Автоматическое скачивание сейчас не работает — это баг на стороне самого Яндекса (подтверждено на нескольких устройствах), не в приложении. Пока не починят — вручную, это быстро:'));
+          sheet.appendChild(el('div', { class: 'muted', style: 'font-size:14px;line-height:1.5;margin-bottom:6px' },
+            '1. На открывшейся странице Я.Диска — тапни backup.json, затем «Скачать».'));
+          sheet.appendChild(el('div', { class: 'muted', style: 'font-size:14px;line-height:1.5;margin-bottom:10px' },
+            '2. Вернись сюда и нажми кнопку ниже — выбери именно скачанный файл.'));
+          sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: () => { close(); $('#imp').click(); } }, '📂 Выбрать скачанный файл'));
+          sheet.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Закрыть'));
+        });
         return;
       }
       if (!confirm('Скачать /BalisticNote/backup.json с Я.Диска и применить?\nТекущие записи будут перезаписаны при совпадении ID.')) return;
