@@ -52,6 +52,77 @@ function openSheet(content) {
   return close;
 }
 
+// ============== валидация обязательных полей ==============
+// Красная рамка у пустого [required]-поля + подсказка-«прилипала», которая
+// висит, пока не тапнешь мимо неё и мимо самого поля (не просто тултип на
+// секунду — так просил пользователь).
+let _fieldPopover = null;
+function closeFieldPopover() {
+  if (!_fieldPopover) return;
+  _fieldPopover.el.remove();
+  document.removeEventListener('pointerdown', _fieldPopover.onOutside, true);
+  _fieldPopover = null;
+}
+function showFieldPopover(input, message) {
+  closeFieldPopover();
+  const pop = el('div', { class: 'field-popover' }, message);
+  document.body.appendChild(pop);
+  const rect = input.getBoundingClientRect();
+  const top = rect.bottom + window.scrollY + 6;
+  let left = rect.left + window.scrollX;
+  left = Math.max(8, Math.min(left, window.innerWidth - pop.offsetWidth - 8));
+  pop.style.top = top + 'px';
+  pop.style.left = left + 'px';
+  const onOutside = e => { if (!pop.contains(e.target) && e.target !== input) closeFieldPopover(); };
+  // задержка, иначе тот же клик, что открыл подсказку (фокус на поле), сразу её и закроет
+  setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 0);
+  _fieldPopover = { el: pop, onOutside };
+}
+function markFieldInvalid(input, message) {
+  input.classList.add('invalid');
+  input.dataset.errMsg = message;
+}
+function clearFieldInvalid(input) {
+  input.classList.remove('invalid');
+  delete input.dataset.errMsg;
+}
+// Проверяет все [required]-поля формы. Пустые — красным; у первого показывает
+// подсказку и скроллит/фокусирует на неё. true — всё заполнено, можно сохранять.
+function validateRequiredFields(form) {
+  let firstBad = null;
+  for (const inp of form.querySelectorAll('[required]')) {
+    const empty = !String(inp.value ?? '').trim();
+    if (empty) {
+      const msg = inp.dataset.errLabel
+        ? `Обязательное поле «${inp.dataset.errLabel}» — без него не сохранить.`
+        : 'Обязательное поле — впиши значение.';
+      markFieldInvalid(inp, msg);
+      if (!firstBad) firstBad = inp;
+    } else {
+      clearFieldInvalid(inp);
+    }
+  }
+  if (firstBad) {
+    firstBad.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    firstBad.focus({ preventScroll: true });
+    showFieldPopover(firstBad, firstBad.dataset.errMsg);
+    return false;
+  }
+  return true;
+}
+// Тап по уже подсвеченному полю — снова показать причину; ввод значения — снять подсветку.
+document.addEventListener('focusin', e => {
+  if (e.target.classList && e.target.classList.contains('invalid')) {
+    showFieldPopover(e.target, e.target.dataset.errMsg);
+  }
+});
+document.addEventListener('input', e => {
+  if (e.target.classList && e.target.classList.contains('invalid') && String(e.target.value || '').trim()) {
+    clearFieldInvalid(e.target);
+    closeFieldPopover();
+  }
+}, true);
+
 // ============== routing ==============
 const routes = [];
 function route(pat, fn) {
@@ -422,17 +493,50 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
 }
 
 // ============== forms ==============
+// Числовые поля — НЕ type=number: спека HTML5 требует точку и в строгих
+// браузерах попросту не даёт напечатать запятую (значение type=number может
+// быть только валидным float с точкой), а часть мобильных клавиатур в RU-
+// раскладке всё равно суют запятую, которая потом бесследно теряется.
+// Поэтому type=text + inputmode=decimal (числовая клавиатура на телефоне
+// всё равно появляется) + глобальный нормализатор ниже, который на лету
+// заменяет запятую на точку, пока пользователь печатает.
+// Каждое поле — отдельный «блок» (рамка+фон, класс field-group): пользователь
+// перепутал соседние поля (набирал BC, а попал в V₀) не из-за формата чисел,
+// а из-за того, что визуально было неясно, где заканчивается одно поле и
+// начинается соседнее (особенно в паре `.row`, где два инпута рядом). Блок
+// уже использовался для полей с кнопками-источниками (numInputWithSources) —
+// теперь тот же приём применяется вообще ко всем полям.
 function numInput(name, label, val, attrs = {}) {
-  return el('div', {},
+  return el('div', { class: 'field-group' },
     el('label', { for: name }, label),
-    el('input', { id: name, name, type: 'number', step: attrs.step || 'any', inputmode: 'decimal', value: val ?? '', ...attrs })
+    el('input', { id: name, name, type: 'text', inputmode: 'decimal', 'data-numeric': '1', value: val ?? '', ...attrs }),
+    el('div', { class: 'field-hint' }, 'дробь: точка или запятая')
   );
 }
 function textInput(name, label, val, attrs = {}) {
-  return el('div', {},
+  return el('div', { class: 'field-group' },
     el('label', { for: name }, label),
     el('input', { id: name, name, type: 'text', value: val ?? '', ...attrs })
   );
+}
+// Живая замена «,» → «.» в любом поле с data-numeric, пока пользователь
+// печатает (символ на символ — длина строки не меняется, поэтому позиция
+// курсора не «прыгает»). Один делегированный слушатель на весь документ —
+// не нужно трогать десятки мест, где создаются числовые поля.
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t && t.tagName === 'INPUT' && t.dataset && t.dataset.numeric && t.value.indexOf(',') !== -1) {
+    const pos = t.selectionStart;
+    t.value = t.value.replace(/,/g, '.');
+    if (pos != null) t.setSelectionRange(pos, pos);
+  }
+}, true);
+// Строгий парсер числа из поля: принимает и точку, и запятую независимо от
+// того, сработал ли уже живой нормализатор выше (защита на всякий случай).
+function parseNum(str) {
+  if (str == null || str === '') return null;
+  const n = parseFloat(String(str).replace(',', '.'));
+  return isFinite(n) ? n : null;
 }
 function selectInput(name, label, val, options) {
   const opts = options.map(o => {
@@ -442,13 +546,13 @@ function selectInput(name, label, val, options) {
     return op;
   });
   const sel = el('select', { id: name, name }, ...opts);
-  return el('div', {}, el('label', { for: name }, label), sel);
+  return el('div', { class: 'field-group' }, el('label', { for: name }, label), sel);
 }
 function readForm(form) {
   const data = {};
   for (const e of form.querySelectorAll('input, select, textarea')) {
     if (!e.name) continue;
-    if (e.type === 'number') data[e.name] = e.value === '' ? null : parseFloat(e.value);
+    if (e.type === 'number' || e.dataset.numeric) data[e.name] = parseNum(e.value);
     else if (e.type === 'checkbox') data[e.name] = e.checked;
     else data[e.name] = e.value;
   }
@@ -471,6 +575,21 @@ function savePrefs(p) { localStorage.setItem('prefs', JSON.stringify(p)); }
 // h в метрах → давление в гПа (sea-level standard ICAO)
 function pressureFromAltitude(altitude_m, sealevelMbar = 1013.25) {
   return sealevelMbar * Math.pow(1 - 0.0000225577 * altitude_m, 5.2559);
+}
+// Дистанция (м) и азимут (°, 0=север, по часовой) между двумя GPS-точками —
+// чистая геометрия по широте/долготе, карта тут вообще не нужна: работает
+// одинаково что с интернетом, что без него (сам GPS-чип интернета не требует).
+function haversineDistance_m(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = d => d * Math.PI / 180;
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 // — Надёжное получение геопозиции с понятными ошибками и авто-фоллбэком —
 function geoErrMsg(e) {
@@ -588,11 +707,11 @@ function numInputWithSources(name, label, val, sources, attrs = {}) {
   // Отдельная рамка+фон вокруг подписи+поля+кнопок источников — иначе на
   // экране с несколькими полями подряд неясно, какие именно кнопки (📡/📱/🐦)
   // относятся к какому полю.
-  const wrap = el('div', { class: sources && sources.length ? 'field-group' : '' });
+  const wrap = el('div', { class: 'field-group' });
   wrap.appendChild(el('label', { for: name }, label));
   const row = el('div', { class: 'input-row' });
-  const input = el('input', { id: name, name, type: 'number',
-    step: attrs.step || 'any', inputmode: 'decimal',
+  const input = el('input', { id: name, name, type: 'text',
+    inputmode: 'decimal', 'data-numeric': '1',
     value: val ?? '', ...attrs });
   row.appendChild(input);
   if (sources && sources.length) {
@@ -618,6 +737,7 @@ function numInputWithSources(name, label, val, sources, attrs = {}) {
     row.appendChild(srcEl);
   }
   wrap.appendChild(row);
+  wrap.appendChild(el('div', { class: 'field-hint' }, 'дробь: точка или запятая'));
   return wrap;
 }
 
@@ -1024,7 +1144,7 @@ async function editRange(id) {
 
   const form = el('form', { class: 'card' });
   form.appendChild(el('h2', {}, 'Полигон'));
-  form.appendChild(textInput('name', 'Название', r.name, { required: true, placeholder: 'МФОЦ Патриот' }));
+  form.appendChild(textInput('name', 'Название', r.name, { required: true, placeholder: 'МФОЦ Патриот', 'data-err-label': 'Название полигона' }));
   form.appendChild(el('div', { class: 'row' },
     numInput('lat', 'Широта', r.lat),
     numInput('lon', 'Долгота', r.lon)
@@ -1062,6 +1182,7 @@ async function editRange(id) {
   }
   form.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateRequiredFields(form)) return;
     const d = readForm(form);
     await Store.put('ranges', { ...r, ...d });
     toast('Сохранено');
@@ -1097,13 +1218,30 @@ function editPositionSheet(rangeId, existing) {
     sheet.appendChild(el('h3', {}, existing ? 'Редактировать позицию' : 'Новая позиция'));
     sheet.appendChild(textInput('name', 'Название', existing?.name, { placeholder: 'Башня закрытая' }));
     sheet.appendChild(numInput('elev', 'Высота над уровнем стрельбища, м', existing?.elev_m));
+    sheet.appendChild(el('div', { class: 'row' },
+      numInput('lat', 'Широта', existing?.lat, { step: 'any' }),
+      numInput('lon', 'Долгота', existing?.lon, { step: 'any' })
+    ));
+    sheet.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: async (ev) => {
+      const btn = ev.currentTarget; const old = btn.textContent;
+      btn.textContent = '⏳ Определяю…'; btn.disabled = true;
+      try {
+        const pos = await getGeo();
+        sheet.querySelector('[name=lat]').value = pos.coords.latitude.toFixed(6);
+        sheet.querySelector('[name=lon]').value = pos.coords.longitude.toFixed(6);
+        toast(`GPS: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+      } catch (e) { toast('GPS: ' + e.message); }
+      finally { btn.textContent = old; btn.disabled = false; }
+    }}, '📍 Захватить GPS (я тут — на позиции)'));
     sheet.appendChild(el('div', { class: 'row-btn' },
       el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Отмена'),
       el('button', { type: 'button', class: 'btn', onclick: async () => {
         const name = sheet.querySelector('[name=name]').value.trim();
         if (!name) { toast('Укажи название'); return; }
         const elev_m = parseFloat(sheet.querySelector('[name=elev]').value) || null;
-        await Store.put('positions', { ...(existing || { id: Store.uid() }), rangeId, name, elev_m });
+        const lat = parseNum(sheet.querySelector('[name=lat]').value);
+        const lon = parseNum(sheet.querySelector('[name=lon]').value);
+        await Store.put('positions', { ...(existing || { id: Store.uid() }), rangeId, name, elev_m, lat, lon });
         close(); navigate();
       }}, 'Сохранить')
     ));
@@ -1140,6 +1278,7 @@ async function renderTargetsCard(rangeId) {
 
 async function editTargetSheet(rangeId, existing) {
   const positions = await Store.byRange('positions', rangeId);
+  const range = await Store.get('ranges', rangeId);
   openSheet((sheet, close) => {
     sheet.appendChild(el('h3', {}, existing ? 'Редактировать цель' : 'Новая цель'));
     sheet.appendChild(textInput('name', 'Название', existing?.name, { placeholder: 'Свиньи, 12A...' }));
@@ -1150,6 +1289,36 @@ async function editTargetSheet(rangeId, existing) {
     sheet.appendChild(numInput('elev_diff_m', 'Превышение цели над позицией, м', existing?.elev_diff_m));
     sheet.appendChild(selectInput('positionId', 'Привязка к позиции (опц.)', existing?.positionId,
       [{ value: '', label: '— любая —' }, ...positions.map(p => ({ value: p.id, label: p.name }))]));
+    sheet.appendChild(el('div', { class: 'row' },
+      numInput('lat', 'Широта цели', existing?.lat, { step: 'any' }),
+      numInput('lon', 'Долгота цели', existing?.lon, { step: 'any' })
+    ));
+    sheet.appendChild(el('div', { class: 'row' },
+      el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:0', onclick: async (ev) => {
+        const btn = ev.currentTarget; const old = btn.textContent;
+        btn.textContent = '⏳ Определяю…'; btn.disabled = true;
+        try {
+          const pos = await getGeo();
+          sheet.querySelector('[name=lat]').value = pos.coords.latitude.toFixed(6);
+          sheet.querySelector('[name=lon]').value = pos.coords.longitude.toFixed(6);
+          toast(`GPS: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+        } catch (e) { toast('GPS: ' + e.message); }
+        finally { btn.textContent = old; btn.disabled = false; }
+      }}, '📍 Захватить GPS (я тут — у мишени)'),
+      el('button', { type: 'button', class: 'btn ghost', style: 'margin-top:0', onclick: () => {
+        const posId = sheet.querySelector('[name=positionId]').value;
+        const from = positions.find(p => p.id === posId) || range; // без привязки к позиции — от точки полигона
+        const tLat = parseNum(sheet.querySelector('[name=lat]').value);
+        const tLon = parseNum(sheet.querySelector('[name=lon]').value);
+        if (from?.lat == null || from?.lon == null) { toast('Нет GPS у позиции/полигона — сначала захвати там'); return; }
+        if (tLat == null || tLon == null) { toast('Сначала захвати GPS цели'); return; }
+        const dist = haversineDistance_m(from.lat, from.lon, tLat, tLon);
+        const az = bearingDeg(from.lat, from.lon, tLat, tLon);
+        sheet.querySelector('[name=distance_m]').value = dist.toFixed(0);
+        sheet.querySelector('[name=azimuth_deg]').value = az.toFixed(0);
+        toast(`По GPS: ${dist.toFixed(0)} м, азимут ${az.toFixed(0)}°`);
+      }}, '📏 Расстояние по GPS')
+    ));
     const cbWrap = el('label', { class: 'checkbox' },
       el('input', { type: 'checkbox', name: 'onBerm' }),
       el('span', { class: 'lbl' }, 'На бруствере',
@@ -1164,7 +1333,8 @@ async function editTargetSheet(rangeId, existing) {
         if (!d.name) { toast('Укажи название'); return; }
         await Store.put('targets', { ...(existing || { id: Store.uid() }), rangeId,
           name: d.name, distance_m: d.distance_m, azimuth_deg: d.azimuth_deg,
-          elev_diff_m: d.elev_diff_m, positionId: d.positionId || null, onBerm: d.onBerm });
+          elev_diff_m: d.elev_diff_m, positionId: d.positionId || null, onBerm: d.onBerm,
+          lat: d.lat, lon: d.lon });
         close(); navigate();
       }}, 'Сохранить')
     ));
@@ -1179,6 +1349,7 @@ route('/range/:id', async ({ id }) => {
   const hits = (await Store.getAll('hits')).filter(x => x.rangeId === id);
   view.appendChild(makeTile('#/range/' + id + '/single', '🎯', 'Одиночная цель', 'Расчёт поправки для одной цели'));
   view.appendChild(makeTile('#/range/' + id + '/map', '🗺', 'Карта целей', 'Поправки для нескольких целей одновременно'));
+  view.appendChild(makeTile('#/range/' + id + '/schema', '📐', 'Схема расположения', 'Позиция и цели на плане — без интернета и загрузки карты'));
   view.appendChild(makeTile('#/range/' + id + '/history', '🏆', 'История попаданий', `${hits.length} записей · обучение активно`));
   view.appendChild(makeTile('#/range/' + id + '/edit', '⚙', 'Настройки полигона', 'Позиции и цели'));
 });
@@ -1327,18 +1498,18 @@ function addAdHocTargetSheet() {
   openSheet((sheet, close) => {
     sheet.appendChild(el('h3', {}, 'Произвольная цель'));
     sheet.appendChild(el('div', { class: 'sub' }, 'не сохраняется в каталог'));
-    sheet.appendChild(numInput('distance_m', 'Дистанция, м', null, { required: true }));
+    sheet.appendChild(numInput('distance_m', 'Дистанция, м', null, { required: true, 'data-err-label': 'Дистанция' }));
     sheet.appendChild(attachKiloButton({
       setDistance: m => sheet.querySelector('[name=distance_m]').value = m.toFixed(0)
     }));
-    sheet.appendChild(numInput('azimuth_deg', 'Азимут, °', null, { min: 0, max: 360, required: true }));
+    sheet.appendChild(numInput('azimuth_deg', 'Азимут, °', null, { min: 0, max: 360, required: true, 'data-err-label': 'Азимут' }));
     sheet.appendChild(attachCompassAzimuthButton(sheet, 'azimuth_deg'));
     sheet.appendChild(numInput('elev_diff_m', 'Превышение, м', 0));
     sheet.appendChild(el('div', { class: 'row-btn' },
       el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Отмена'),
       el('button', { type: 'button', class: 'btn', onclick: () => {
+        if (!validateRequiredFields(sheet)) return;
         const d = readForm(sheet);
-        if (!d.distance_m || d.azimuth_deg == null) { toast('Заполни поля'); return; }
         Wiz.customTarget = { name: 'Произвольная', ...d };
         Wiz.targetId = null;
         close(); renderWizardCurrent();
@@ -1755,6 +1926,93 @@ route('/range/:id/map', async ({ id }) => {
       )
     ));
   }
+});
+
+// ============== СХЕМА РАСПОЛОЖЕНИЯ (без карты, только дист.+азимут) ==============
+// Не настоящая карта (нет тайлов подложки, нет интернета) — просто план
+// сверху: позиция в центре, цели — точки по дистанции+азимуту от неё. Не
+// нужны ни тайлы, ни сеть — работает от тех же distance_m/azimuth_deg, что
+// уже считает остальное приложение (включая новый расчёт «по GPS» выше).
+route('/range/:id/schema', async ({ id }) => {
+  const r = await Store.get('ranges', id);
+  setHeader({ title: 'Схема расположения', sub: r?.name });
+  const positions = await Store.byRange('positions', id);
+  const targets = await Store.byRange('targets', id);
+  if (!positions.length) {
+    view.appendChild(el('div', { class: 'banner' }, 'Сначала добавь огневую позицию в настройках полигона.'));
+    return;
+  }
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('h2', {}, 'План'));
+  card.appendChild(selectInput('positionId', 'Позиция (в центре схемы)', positions[0].id,
+    positions.map(p => ({ value: p.id, label: p.name }))));
+  const svgWrap = el('div', { style: 'text-align:center;margin-top:8px' });
+  card.appendChild(svgWrap);
+  card.appendChild(el('div', { class: 'muted', style: 'font-size:11px;text-align:center;margin-top:6px' },
+    '▲ вверху — север (0°). Точки — по дистанции и азимуту от позиции, не по GPS-координатам напрямую (даже если GPS есть — масштаб схемы всегда «влезает в экран»).'));
+  view.appendChild(card);
+
+  function render() {
+    const posId = card.querySelector('[name=positionId]').value;
+    const tList = targets.filter(t => (!t.positionId || t.positionId === posId) && t.distance_m > 0);
+    svgWrap.innerHTML = '';
+    if (!tList.length) { svgWrap.appendChild(el('div', { class: 'muted' }, 'У этой позиции нет целей с заданной дистанцией.')); return; }
+    const maxDist = Math.max(...tList.map(t => t.distance_m));
+    const R = 140; // радиус рисования в SVG-единицах для самой дальней цели
+    const size = 320;
+    const cx = size / 2, cy = size / 2;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+    svg.setAttribute('width', '100%'); svg.setAttribute('style', 'max-width:340px;background:var(--field-bg);border-radius:12px');
+    // кольца дистанций (4 равных доли от макс. дистанции)
+    for (let k = 1; k <= 4; k++) {
+      const ring = document.createElementNS(NS, 'circle');
+      ring.setAttribute('cx', cx); ring.setAttribute('cy', cy); ring.setAttribute('r', R * k / 4);
+      ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', 'var(--border)'); ring.setAttribute('stroke-width', '1');
+      svg.appendChild(ring);
+      // подпись кольца по диагонали СЗ (не строго вверх — там уже маркер севера)
+      const lbl = document.createElementNS(NS, 'text');
+      lbl.setAttribute('x', cx - (R * k / 4) * 0.707 + 2); lbl.setAttribute('y', cy - (R * k / 4) * 0.707 - 2);
+      lbl.setAttribute('font-size', '8'); lbl.setAttribute('fill', 'var(--muted)');
+      lbl.textContent = Math.round(maxDist * k / 4) + 'м';
+      svg.appendChild(lbl);
+    }
+    // позиция — в центре
+    const posDot = document.createElementNS(NS, 'circle');
+    posDot.setAttribute('cx', cx); posDot.setAttribute('cy', cy); posDot.setAttribute('r', 6);
+    posDot.setAttribute('fill', 'var(--accent)');
+    svg.appendChild(posDot);
+    const posLbl = document.createElementNS(NS, 'text');
+    posLbl.setAttribute('x', cx); posLbl.setAttribute('y', cy + 20);
+    posLbl.setAttribute('font-size', '10'); posLbl.setAttribute('fill', 'var(--accent)'); posLbl.setAttribute('text-anchor', 'middle');
+    posLbl.textContent = positions.find(p => p.id === posId)?.name || 'Позиция';
+    svg.appendChild(posLbl);
+    // север
+    const north = document.createElementNS(NS, 'text');
+    north.setAttribute('x', cx); north.setAttribute('y', 12);
+    north.setAttribute('font-size', '10'); north.setAttribute('fill', 'var(--muted)'); north.setAttribute('text-anchor', 'middle');
+    north.textContent = '▲ N';
+    svg.appendChild(north);
+    // цели
+    for (const t of tList) {
+      const rad = (t.azimuth_deg || 0) * Math.PI / 180;
+      const rr = (t.distance_m / maxDist) * R;
+      const x = cx + rr * Math.sin(rad), y = cy - rr * Math.cos(rad);
+      const dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('r', 5);
+      dot.setAttribute('fill', 'var(--bad)');
+      svg.appendChild(dot);
+      const lbl = document.createElementNS(NS, 'text');
+      lbl.setAttribute('x', x); lbl.setAttribute('y', y - 9);
+      lbl.setAttribute('font-size', '9'); lbl.setAttribute('fill', 'var(--text)'); lbl.setAttribute('text-anchor', 'middle');
+      lbl.textContent = `${t.name} · ${Math.round(t.distance_m)}м`;
+      svg.appendChild(lbl);
+    }
+    svgWrap.appendChild(svg);
+  }
+  card.querySelector('[name=positionId]').addEventListener('change', render);
+  render();
 });
 
 // ============== JOURNAL (поиск с фильтрами по всем попаданиям) ==============
@@ -2892,7 +3150,7 @@ route('/profile/:id', async ({ id }, query) => {
 
   const f = el('form', { class: 'card' });
   f.appendChild(el('h2', {}, 'Профиль'));
-  f.appendChild(textInput('name', 'Название профиля', p.name, { required: true, placeholder: 'напр. Tikka .308 + 175 SMK' }));
+  f.appendChild(textInput('name', 'Название профиля', p.name, { required: true, placeholder: 'напр. Tikka .308 + 175 SMK', 'data-err-label': 'Название профиля' }));
 
   const wSelWrap = selectInput('weaponId', 'Оружие', curWId, [{ value: '', label: '— новое —' }, ...weapons.map(x => ({ value: x.id, label: x.name || 'Без названия' }))]);
   const cSelWrap = selectInput('cartridgeId', 'Патрон', curCId, [{ value: '', label: '— новый —' }, ...cartridges.map(x => ({ value: x.id, label: x.name || 'Без названия' }))]);
@@ -2942,7 +3200,28 @@ route('/profile/:id', async ({ id }, query) => {
     numInput('ssfElevation', 'SSF вертикаль', w0.ssfElevation ?? 1, { step: '0.001' }),
     numInput('ssfWindage', 'SSF горизонталь', w0.ssfWindage ?? 1, { step: '0.001' })
   ));
+  // Фактор гироскопической стабильности (Sg, по Миллеру, на уровне моря) —
+  // считается живьём из твиста (Gun Data) + массы/длины/калибра пули (Bullet
+  // Data) прямо в этой форме. Цвета — по порогам, которые задал пользователь:
+  // <1.5 нестабильно (красный), 1.5–1.99 погранично (жёлтый), ≥2 надёжно (зелёный).
+  const sgCard = el('div', { class: 'info-card', style: 'margin-top:8px' });
+  sgCard.appendChild(el('div', { class: 'label' }, 'Стабильность (Sg, Miller)'));
+  const sgVal = el('div', { class: 'big-num' }, '—');
+  sgCard.appendChild(sgVal);
+  gunSec.appendChild(sgCard);
   f.appendChild(gunSec);
+  function updateSg() {
+    const massGr = parseNum(f.bulletMass_gr.value);
+    const twistIn = parseNum(f.twist_in.value);
+    const caliberIn = parseNum(f.caliber_in.value);
+    const lengthIn = parseNum(f.bulletLength_in.value);
+    const sg = Ballistics.millerStability(massGr, twistIn, caliberIn, lengthIn);
+    if (sg == null || !isFinite(sg)) { sgVal.textContent = '—'; sgVal.style.color = ''; return; }
+    sgVal.textContent = 'Sg = ' + sg.toFixed(2);
+    sgVal.style.color = sg >= 2 ? 'var(--good)' : sg >= 1.5 ? 'var(--warn)' : 'var(--bad)';
+  }
+  f.addEventListener('input', updateSg);
+  updateSg();
 
   // === 🔭 Scope ===
   const scopeSec = el('div', { style: 'margin-top:10px' });
@@ -2950,6 +3229,82 @@ route('/profile/:id', async ({ id }, query) => {
   scopeSec.appendChild(selectInput('reticleId', 'Сетка прицела', w0.reticleId || '',
     [{ value: '', label: '— не выбрана —' }, ...reticles.map(r => ({ value: r.id, label: r.name }))]));
   f.appendChild(scopeSec);
+
+  // === 🌡 MV-Temp Table (как в AB) — приоритет над линейным коэф. чувствит. ===
+  // Уже существовала раньше — но только на отдельной странице патрона
+  // (/cartridge/:id). AB показывает её прямо на экране профиля — сделали так
+  // же: то же поле `mvTempTable`, тот же парсинг при сохранении.
+  const mvSec = el('div', { style: 'margin-top:10px' });
+  mvSec.appendChild(el('h2', {}, '🌡 MV-Temp Table'));
+  mvSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
+    'Точки «°C, V₀» по строкам — если задано ≥2 точки, V₀ на расчёте берётся интерполяцией по температуре патрона вместо линейного коэффициента.'));
+  const mvInitial = (c0.mvTempTable || []).map(pt => `${pt.tempC}, ${pt.v0}`).join('\n');
+  mvSec.appendChild(el('label', { for: 'mvTempText' }, 'Точки: «°C, V₀»'));
+  mvSec.appendChild(el('textarea', { id: 'mvTempText', name: 'mvTempText',
+    placeholder: '-10, 805\n0, 815\n15, 828\n30, 840' }, mvInitial));
+  f.appendChild(mvSec);
+
+  // === 📐 Калибровка BC по DOPE (в AB — «Drop Scale Factor Table») ===
+  // AB хранит отдельную таблицу Mach/DSF. У нас та же самая идея (поправочный
+  // множитель по Mach-диапазону) уже реализована как multi-point BC-truing —
+  // не стали заводить вторую, дублирующую структуру данных ради визуального
+  // сходства; это то же самое, просто наши термины/UI (см. WORKLOG).
+  if (curCId) {
+    const cFull = cartridges.find(x => x.id === curCId) || {};
+    const dsfSec = el('div', { style: 'margin-top:10px' });
+    dsfSec.appendChild(el('h2', {}, '📐 Калибровка BC по Mach (аналог DSF в AB)'));
+    dsfSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
+      'Работает только в переходной/дозвуковой зоне, сверхзвук не трогает (там калибруй V₀). По офиц. рекомендации AB — точки лучше всего ставить около Mach 1.2 и Mach 0.9.'));
+    const pts = (cFull.truingPoints || []).slice().sort((a, b) => b.machAt - a.machAt);
+    if (pts.length) {
+      const tbl = el('table', { class: 'table' });
+      tbl.appendChild(h(`<thead><tr><th>Mach</th><th>BC×</th><th>Дист., м</th><th>факт. mil</th></tr></thead>`));
+      const tb = el('tbody');
+      pts.forEach(pt => {
+        tb.appendChild(h(`<tr><td>${fmt(pt.machAt, 2)}</td><td class="accent">${fmt(pt.bcFactor, 3)}</td><td>${pt.range_m ?? '—'}</td><td>${fmt(pt.observedDropMil, 2)}</td></tr>`));
+      });
+      tbl.appendChild(tb);
+      dsfSec.appendChild(el('div', { style: 'overflow-x:auto' }, tbl));
+    } else {
+      dsfSec.appendChild(el('div', { class: 'muted', style: 'font-size:12px' }, 'Точек калибровки пока нет.'));
+    }
+    dsfSec.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => openTruingSheet(cFull) }, '🎯 Добавить точку калибровки'));
+    f.appendChild(dsfSec);
+  }
+
+  // === 📝 Notes ===
+  const notesSec = el('div', { style: 'margin-top:10px' });
+  notesSec.appendChild(el('h2', {}, '📝 Notes'));
+  notesSec.appendChild(el('label', { for: 'notes' }, 'Заметки к профилю'));
+  notesSec.appendChild(el('textarea', { id: 'notes', name: 'notes' }, p.notes || ''));
+  f.appendChild(notesSec);
+
+  // === 📋 Журнал релоада — привязан к патрону этого профиля (та же таблица
+  // casePreps, что и общий «/casepreps»), но виден и отдельно как весь журнал
+  // по ссылке ниже — так и просил пользователь: не только внутри профиля.
+  if (curCId) {
+    const casePreps = (await Store.getAll('casePreps'))
+      .filter(cp => cp.cartridgeId === curCId)
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const jSec = el('div', { style: 'margin-top:10px' });
+    jSec.appendChild(el('h2', {}, '📋 Журнал релоада'));
+    if (!casePreps.length) {
+      jSec.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' }, 'Записей для этого патрона пока нет.'));
+    }
+    for (const cp of casePreps.slice(0, 5)) {
+      jSec.appendChild(el('a', { class: 'list-item', href: '#/caseprep/' + cp.id },
+        el('div', { class: 'ttl' }, cp.name || ('Цикл ' + (cp.cycleNum ?? '?'))),
+        el('div', { class: 'sub' },
+          `цикл ${cp.cycleNum ?? '?'} · ${cp.annealed ? 'отжиг ✓' : 'без отжига'}` +
+          (cp.updatedAt ? ' · ' + new Date(cp.updatedAt).toLocaleDateString('ru-RU') : ''))
+      ));
+    }
+    jSec.appendChild(el('div', { class: 'row' },
+      el('a', { class: 'btn ghost', href: `#/caseprep/new?cartridgeId=${curCId}` }, '+ Новая запись'),
+      el('a', { class: 'btn outline', href: '#/casepreps' }, '📋 Весь журнал')
+    ));
+    f.appendChild(jSec);
+  }
 
   // ссылки на расширенные настройки — только для уже сохранённых оружия/патрона
   const advRow = el('div', { class: 'row', style: 'margin-top:8px' });
@@ -2992,6 +3347,7 @@ route('/profile/:id', async ({ id }, query) => {
 
   f.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     const wExisting = d.weaponId ? weapons.find(x => x.id === d.weaponId) : null;
     const wRec = {
@@ -3001,14 +3357,19 @@ route('/profile/:id', async ({ id }, query) => {
       ssfElevation: d.ssfElevation ?? 1, ssfWindage: d.ssfWindage ?? 1,
     };
     const savedW = await Store.put('weapons', wRec);
+    const mvPts = (d.mvTempText || '').split('\n').map(s => s.trim()).filter(Boolean).map(s => {
+      const [t, v] = s.split(/[,\s]+/).map(parseFloat);
+      return (isFinite(t) && isFinite(v) && v > 0) ? { tempC: t, v0: v } : null;
+    }).filter(Boolean).sort((a, b) => a.tempC - b.tempC);
     const cExisting = d.cartridgeId ? cartridges.find(x => x.id === d.cartridgeId) : null;
     const cRec = {
       ...(cExisting || { id: Store.uid(), name: d.name }),
       bc: d.bc, dragModel: d.dragModel, v0: d.v0,
       bulletMass_gr: d.bulletMass_gr, bulletLength_in: d.bulletLength_in, caliber_in: d.caliber_in,
+      mvTempTable: mvPts.length >= 2 ? mvPts : null,
     };
     const savedC = await Store.put('cartridges', cRec);
-    const saved = await Store.put('profiles', { ...p, name: d.name, weaponId: savedW.id, cartridgeId: savedC.id });
+    const saved = await Store.put('profiles', { ...p, name: d.name, weaponId: savedW.id, cartridgeId: savedC.id, notes: d.notes });
     localStorage.setItem('activeProfileId', saved.id);
     localStorage.setItem('activeWeaponId', saved.weaponId || '');
     localStorage.setItem('activeCartridgeId', saved.cartridgeId || '');
@@ -3085,7 +3446,7 @@ route('/quick-targets', async () => {
   f.appendChild(el('h2', {}, 'Добавить цель'));
   f.appendChild(el('div', { class: 'row' },
     textInput('tname', 'Имя (необяз.)', '', { placeholder: 'T1' }),
-    numInput('tdist', 'Дистанция, м', '', { required: true })));
+    numInput('tdist', 'Дистанция, м', '', { required: true, 'data-err-label': 'Дистанция' })));
   const azRow = el('div', { class: 'input-row' });
   const azInp = el('input', { id: 'taz', name: 'taz', type: 'number', inputmode: 'decimal', placeholder: 'Азимут цели, °', style: 'flex:1' });
   const azCap = el('button', { type: 'button', class: 'src-meteo', title: 'Навёл на цель — захват компасом', onclick: async (ev) => {
@@ -3099,8 +3460,8 @@ route('/quick-targets', async () => {
   f.appendChild(el('button', { type: 'submit', class: 'btn' }, '+ Добавить цель'));
   f.addEventListener('submit', e => {
     e.preventDefault();
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
-    if (!d.tdist) { toast('Укажи дистанцию'); return; }
     targets.push({ id: Store.uid(), name: d.tname || ('T' + (targets.length + 1)), distance_m: d.tdist, azimuth_deg: parseFloat(azInp.value) || 0 });
     saveTargets(); navigate();
   });
@@ -3156,7 +3517,7 @@ route('/weapon/:id', async ({ id }) => {
   setHeader({ title: isNew ? 'Новое оружие' : (w.name || 'Оружие') });
   const reticles = await Store.getAll('reticles');
   const f = el('form', { class: 'card' });
-  f.appendChild(textInput('name', 'Название', w.name, { required: true }));
+  f.appendChild(textInput('name', 'Название', w.name, { required: true, 'data-err-label': 'Название оружия' }));
   f.appendChild(el('div', { class: 'row' },
     textInput('caliber', 'Калибр', w.caliber, { placeholder: '.308 Win' }),
     textInput('action', 'Тип', w.action, { placeholder: 'болт' })
@@ -3204,6 +3565,7 @@ route('/weapon/:id', async ({ id }) => {
   }}, 'Удалить'));
   f.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     d.twistRight = d.twistRight !== 'false';
     await Store.put('weapons', { ...w, ...d });
@@ -3265,7 +3627,7 @@ route('/cartridge/:id', async ({ id }) => {
   setHeader({ title: isNew ? 'Новый патрон' : (c.name || 'Патрон') });
   const allCartridges = await Store.getAll('cartridges');
   const f = el('form', { class: 'card' });
-  f.appendChild(textInput('name', 'Название', c.name, { required: true }));
+  f.appendChild(textInput('name', 'Название', c.name, { required: true, 'data-err-label': 'Название патрона' }));
   f.appendChild(el('button', { type: 'button', class: 'btn ghost', onclick: () => openBulletLibrarySheet(b => {
     const { bc, dragModel } = bestBC(b);
     f.name.value = b.name;
@@ -3402,7 +3764,8 @@ route('/cartridge/:id', async ({ id }) => {
   f.appendChild(el('hr'));
   f.appendChild(el('h2', {}, 'Калибровка BC по DOPE (Litz banding)'));
   f.appendChild(el('div', { class: 'banner' },
-    'Добавляй точки на разных дистанциях — solver интерполирует BC по Mach. Литц рекомендует ≥3 точки от ближней (полный сверхзвук) до дальней (трансзвук).'));
+    'Добавляй точки на разных дистанциях — solver интерполирует BC по Mach. Литц рекомендует ≥3 точки от ближней (полный сверхзвук) до дальней (трансзвук). ' +
+    'Если сверхзвук уже бьёт точно (там калибруй V₀, не BC) — точки калибровки по AB официально лучше всего ставить около Mach 1.2 и Mach 0.9 (переход через звуковой барьер), это даёт максимально надёжную поправку именно в переходной/дозвуковой зоне.'));
   const pts = (c.truingPoints || []).slice().sort((a, b) => b.machAt - a.machAt);
   if (pts.length) {
     const tbl = el('table', { class: 'table' });
@@ -3454,6 +3817,7 @@ route('/cartridge/:id', async ({ id }) => {
   }}, 'Удалить'));
   f.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     const cdm = (d.customDragText || '').split('\n')
       .map(s => s.trim()).filter(Boolean)
@@ -3744,8 +4108,8 @@ function openTruingSheet(cart) {
     sheet.appendChild(selectInput('weaponId', 'Оружие', null,
       weapons.map(w => ({ value: w.id, label: w.name }))));
     sheet.appendChild(el('div', { class: 'row' },
-      numInput('range', 'Дистанция, м', 600, { required: true }),
-      numInput('observedDropMil', 'Факт. mil', 4.0, { required: true })
+      numInput('range', 'Дистанция, м', 600, { required: true, 'data-err-label': 'Дистанция' }),
+      numInput('observedDropMil', 'Факт. mil', 4.0, { required: true, 'data-err-label': 'Фактическая поправка' })
     ));
     sheet.appendChild(el('div', { class: 'row' },
       numInput('tempC', 'Темп., °C', 15),
@@ -3754,6 +4118,7 @@ function openTruingSheet(cart) {
     sheet.appendChild(el('div', { class: 'row-btn' },
       el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Отмена'),
       el('button', { type: 'button', class: 'btn', onclick: async () => {
+        if (!validateRequiredFields(sheet)) return;
         const d = readForm(sheet);
         const weapon = weapons.find(w => w.id === d.weaponId);
         if (!weapon) { toast('Выбери оружие'); return; }
@@ -3800,7 +4165,7 @@ route('/reticle/:id', async ({ id }) => {
   setHeader({ title: isNew ? 'Новая сетка' : (r.name || 'Сетка') });
 
   const f = el('form', { class: 'card' });
-  f.appendChild(textInput('name', 'Название', r.name, { required: true, placeholder: 'Mil-XT, MOAR, MSR-2, ...' }));
+  f.appendChild(textInput('name', 'Название', r.name, { required: true, placeholder: 'Mil-XT, MOAR, MSR-2, ...', 'data-err-label': 'Название сетки' }));
   f.appendChild(el('div', { class: 'row' },
     selectInput('type', 'Тип', r.type || 'mil', [{value:'mil',label:'mil/MRAD'},{value:'moa',label:'MOA'}]),
     numInput('clickValue', 'Цена клика', r.clickValue ?? 0.1, { step: '0.01' })
@@ -4090,6 +4455,7 @@ route('/reticle/:id', async ({ id }) => {
   // --- сохранение ---
   const buttons = el('div', { class: 'card' });
   buttons.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     d.ffp = !!d.ffp;
     if (cal && cal.p0_x != null) {
@@ -5502,9 +5868,9 @@ route('/casepreps', async () => {
   }
   view.appendChild(el('a', { class: 'fab', href: '#/caseprep/new' }, '+'));
 });
-route('/caseprep/:id', async ({ id }) => {
+route('/caseprep/:id', async ({ id }, query) => {
   const isNew = id === 'new';
-  const cp = isNew ? { id: Store.uid() } : await Store.get('casePreps', id);
+  const cp = isNew ? { id: Store.uid(), cartridgeId: (query && query.cartridgeId) || '' } : await Store.get('casePreps', id);
   if (!cp) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
   setHeader({ title: isNew ? 'Новый цикл подготовки' : (cp.name || 'Цикл подготовки') });
   const cartridges = await Store.getAll('cartridges');
@@ -6124,7 +6490,7 @@ route('/stage/:id', async ({ id }) => {
   if (!s) return view.appendChild(el('div', { class: 'card' }, 'Не найдено'));
   setHeader({ title: isNew ? 'Новое упражнение' : (s.name || 'Упражнение') });
   const f = el('form', { class: 'card' });
-  f.appendChild(textInput('name', 'Название', s.name, { required: true }));
+  f.appendChild(textInput('name', 'Название', s.name, { required: true, 'data-err-label': 'Название упражнения' }));
   f.appendChild(el('div', { class: 'row' },
     numInput('timeLimit_s', 'Лимит времени, с', s.timeLimit_s ?? 90),
     numInput('roundCount', 'Патронов', s.roundCount ?? 10)
@@ -6178,6 +6544,7 @@ route('/stage/:id', async ({ id }) => {
   }
   f.addEventListener('submit', async e => {
     e.preventDefault();
+    if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     await Store.put('stages', { ...s, ...d, targets });
     toast('Сохранено'); history.back();

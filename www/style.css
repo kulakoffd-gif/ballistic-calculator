@@ -11,9 +11,14 @@
   --good: #4ade80;
   --good-dim: #2a4a35;
   --bad: #f87171;
+  --warn: #f5c344;
   --field-bg: #131a24;
   --field-border: #fff;
   --shadow: 0 8px 24px #0008;
+  /* лёгкая тень для плиток/карточек в обычном потоке страницы — --shadow
+     задуман для плавающих поверх контента элементов (fab/sheet/модалка),
+     он слишком тяжёлый для карточек, идущих подряд одна за другой. */
+  --shadow-sm: 0 3px 10px rgba(0,0,0,.35);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -23,7 +28,7 @@ html, body {
   font-size: 15px;
 }
 /* числа в моноширинном — для табличных значений */
-.val, .big-num, .clock-display, .table td, .kv .v, input[type="number"] {
+.val, .big-num, .clock-display, .table td, .kv .v, input[type="number"], input[data-numeric] {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
 }
@@ -118,7 +123,7 @@ body.drawer-open { overflow: hidden; height: 100dvh; }
 /* ===== cards / tiles ===== */
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-  padding: 14px; margin-bottom: 10px;
+  padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow-sm);
 }
 .card h2 {
   margin: 0 0 10px; font-size: 12px; color: var(--muted);
@@ -131,6 +136,7 @@ body.drawer-open { overflow: hidden; height: 100dvh; }
   display: block; text-decoration: none; color: var(--text);
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   padding: 16px 16px 16px 20px; margin-bottom: 12px; position: relative;
+  box-shadow: var(--shadow-sm);
 }
 .tile::before {
   content: ""; position: absolute; left: 0; top: 10px; bottom: 10px;
@@ -151,9 +157,12 @@ body.drawer-open { overflow: hidden; height: 100dvh; }
    уровне независимо от того, обёрнута подпись в 1 или 2 строки (например,
    у полей с переключателем единиц м/mil заголовок длиннее соседних —
    см. также инлайновый min-height у .field-label-row в unitField()). */
+/* Надпись ближе к СВОЕМУ полю ниже (4px), чуть дальше от предыдущего поля
+   выше (14px) — асимметрия делает однозначным, к какому полю относится
+   надпись (раньше 12/6 было недостаточно разным, путалось на плотных формах). */
 label {
   display: block; font-size: 11px; color: var(--muted); min-height: 28px;
-  letter-spacing: 1.5px; text-transform: uppercase; margin: 12px 0 6px;
+  letter-spacing: 1.5px; text-transform: uppercase; margin: 14px 0 4px;
 }
 input, select, textarea {
   width: 100%; padding: 10px 11px; font-size: 16px; font-weight: 700;
@@ -168,12 +177,34 @@ input, select, textarea {
   text-align: center;
   text-align-last: center;
 }
-input[type="number"] {
+input[type="number"], input[data-numeric] {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   letter-spacing: 1px;
 }
 input::placeholder { text-align: center; opacity: 0.5; }
+
+/* Подсказка формата под числовым полем — точка/запятая допустимы обе. */
+.field-hint {
+  font-size: 10px; color: var(--muted); text-align: center;
+  margin-top: -3px; opacity: 0.6; letter-spacing: 0.3px;
+}
+
+/* Поле, которому не хватает обязательных данных — красная рамка + свечение. */
+input.invalid, select.invalid, textarea.invalid {
+  border-color: var(--bad) !important;
+  box-shadow: 0 0 0 1px var(--bad) inset;
+}
+
+/* Всплывающая подсказка у невалидного поля — «висит», пока не тапнешь мимо. */
+.field-popover {
+  position: absolute; z-index: 60; max-width: 260px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--bad); border-radius: 10px;
+  padding: 8px 11px; font-size: 12.5px; line-height: 1.4;
+  box-shadow: var(--shadow);
+  animation: fade .12s;
+}
 
 /* Лейблы по центру */
 label { text-align: center; }
@@ -257,6 +288,7 @@ label { text-align: center; }
 .info-card {
   border: 1px solid var(--accent-deep); border-radius: 14px;
   padding: 14px; margin-bottom: 10px; background: rgba(255,139,61,.04);
+  box-shadow: var(--shadow-sm);
 }
 .info-card.good { border-color: var(--good-dim); background: rgba(74,222,128,.04); }
 .info-card .label {
@@ -475,14 +507,19 @@ label { text-align: center; }
 }
 .range-stepper .range-cancel:active { background: var(--bad); color: #1a0e05; }
 
-/* ===== per-field источники данных ===== */
-/* Обёртка вокруг подписи+поля+кнопок источников — рамка и фон визуально
-   объединяют их, иначе неясно, какие кнопки (📡/📱/🐦) к какому полю. */
+/* ===== поле как отдельный визуальный блок ===== */
+/* Рамка+фон вокруг подписи+поля (изначально — только для кнопок-источников
+   📡/📱/🐦, теперь применяется вообще ко ВСЕМ полям): пользователь однажды
+   перепутал соседние поля (набирал BC, попал в V₀) не из-за формата чисел, а
+   потому что визуально было неясно, где заканчивается одно поле формы и
+   начинается соседнее — особенно два инпута рядом в `.row`. Блок делает
+   границу между полями однозначной. */
 .field-group {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel-2);
   padding: 8px 10px 10px;
+  margin-bottom: 10px;
 }
 .field-group > label { margin-top: 0; }
 .input-row { display: flex; gap: 4px; align-items: stretch; }
@@ -617,7 +654,7 @@ body.sun-mode {
 .list-item {
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
   padding: 12px 14px; margin-bottom: 8px; display: block;
-  color: var(--text); text-decoration: none;
+  color: var(--text); text-decoration: none; box-shadow: var(--shadow-sm);
 }
 .list-item:active { background: var(--panel-2); }
 .list-item .ttl { font-weight: 500; }
@@ -726,6 +763,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .chip {
   padding: 8px 14px; background: var(--panel-2); border: 1px solid var(--border);
   border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--text);
+  box-shadow: var(--shadow-sm);
 }
 .chip.active { background: var(--accent); color: #1a0e05; border-color: var(--accent); }
 
