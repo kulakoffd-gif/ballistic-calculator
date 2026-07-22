@@ -6199,47 +6199,63 @@ route('/atmo-presets', async () => {
 // значения нигде не сохранялись, при закрытии sheet всё пропадало без следа.
 // Список (а не одно накопленное число) — чтобы конкретную ошибочную запись
 // можно было отменить отдельно в профиле пули, не сбрасывая остальные.
+// РЕДИЗАЙН (см. WORKLOG §«Промах — вход по факту прилёта, не по «куда ушла
+// пуля»): первая версия просила ввести «куда УШЛА пуля» (миссмил со знаком
+// ВВЕРХ+/ВНИЗ−) — реальный кейс показал, что стрелок мыслит не так: он
+// приезжает к мишени, определяет РЕАЛЬНУЮ поправку, которая дала бы попадание
+// (например «на 800 было 8.1, а надо было 8.4»), и хочет ввести именно ЭТО
+// готовое число, а не пересчитывать в уме разницу и её знак. Ввод «8.4» в
+// старую версию читался как «миссмил», давая 8.1−8.4=−0.3 — бессмысленную,
+// пугающую поправку. Теперь поля так и называются «реальная поправка» и
+// предзаполнены текущим расчётным значением: не трогал — 0 изменений;
+// вписал своё найденное число — именно оно и станет новой поправкой.
 function openSpottingSheet(currentDropMil, currentDriftMil, dist, cart, onSave) {
   openSheet((sheet, close) => {
     sheet.appendChild(el('h3', {}, 'Промах — поправка'));
-    sheet.appendChild(el('div', { class: 'sub' }, `Дистанция ${dist} м, текущая поправка V ${fmt(currentDropMil,2)} mil, H ${fmt(currentDriftMil,2)} mil`));
+    sheet.appendChild(el('div', { class: 'sub' }, `Дистанция ${dist} м, сейчас калькулятор даёт V ${fmt(currentDropMil,2)} mil, H ${fmt(currentDriftMil,2)} mil`));
     sheet.appendChild(el('div', { class: 'banner' },
-      'Куда УШЛА пуля относительно цели. ВВЕРХ +, ВНИЗ −, ВПРАВО +, ВЛЕВО −. Приложение посчитает новую поправку.'));
+      'Впиши РЕАЛЬНУЮ поправку — то число mil, с которым ты в этот раз реально попал бы в мишень (не разницу, а готовое итоговое значение). Ничего не менял — оставь как есть, ничего не сохранится.'));
     const { vert: savedV, horiz: savedH } = spotCorrTotal(cart);
     if (cart && (savedV || savedH)) {
       sheet.appendChild(el('div', { class: 'banner accent' },
-        `Уже сохранены поправки по прошлым промахам: V ${fmt(savedV,2)}, H ${fmt(savedH,2)} mil — новая добавится к ним. Список всех записей — в профиле пули.`));
+        `Уже сохранены поправки по прошлым промахам: V ${signedMil(-savedV)}, H ${signedMil(-savedH)} mil — новая добавится к ним. Список всех записей — в профиле пули.`));
     }
     sheet.appendChild(el('div', { class: 'row' },
-      numInput('vertMissMil', 'Вертикаль (mil)', 0, { step: '0.1' }),
-      numInput('horizMissMil', 'Горизонталь (mil)', 0, { step: '0.1' })
+      numInput('vertRealMil', 'Реальная вертикаль (mil)', fmt(currentDropMil, 2), { step: '0.1' }),
+      numInput('horizRealMil', 'Реальная горизонталь (mil)', fmt(currentDriftMil, 2), { step: '0.1' })
     ));
     const result = el('div', { class: 'card', style: 'margin-top:10px' });
     sheet.appendChild(result);
     function recalc() {
       const d = readForm(sheet);
-      const newDrop = currentDropMil - (d.vertMissMil || 0);
-      const newDrift = currentDriftMil - (d.horizMissMil || 0);
+      const newDrop = d.vertRealMil ?? currentDropMil;
+      const newDrift = d.horizRealMil ?? currentDriftMil;
+      const dV = newDrop - currentDropMil, dH = newDrift - currentDriftMil;
       result.innerHTML = '';
       result.appendChild(el('div', { class: 'kv' },
-        el('div', { class: 'k' }, 'Новая вертикаль'),
-        el('div', { class: 'v accent' }, fmt(newDrop, 2) + ' mil'),
-        el('div', { class: 'k' }, 'Новая горизонталь'),
-        el('div', { class: 'v accent' }, fmt(newDrift, 2) + ' mil')
+        el('div', { class: 'k' }, 'Будет сохранена поправка'),
+        el('div', { class: 'v accent' }, `V ${signedMil(dV)} / H ${signedMil(dH)} mil`)
       ));
+      if (!dV && !dH) {
+        result.appendChild(el('div', { class: 'muted center', style: 'font-size:12px;margin-top:4px' }, 'Значение не менялось — сохранять нечего.'));
+      }
     }
     sheet.addEventListener('input', recalc);
     recalc();
     if (cart) {
       sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
         const d = readForm(sheet);
-        if (!d.vertMissMil && !d.horizMissMil) { toast('Укажи, куда ушла пуля'); return; }
+        const newDrop = d.vertRealMil ?? currentDropMil, newDrift = d.horizRealMil ?? currentDriftMil;
+        const dV = newDrop - currentDropMil, dH = newDrift - currentDriftMil;
+        if (!dV && !dH) { toast('Значение не менялось — нечего сохранять'); return; }
         // мутируем cart НА МЕСТЕ (не просто {...cart, ...}) — это тот же объект,
         // что уже держит в замыкании форма /calc (переменная `c`); иначе после
         // Store.put расчёт на экране продолжал бы использовать старые, ещё не
         // сохранённые значения вплоть до полной перезагрузки страницы.
+        // vertMil/horizMil хранятся в СТАРОМ формате applySpotCorrection
+        // (row.drop_mil -= vertMil), поэтому здесь знак обратный дельте dV.
         cart.spotCorrections = [...(cart.spotCorrections || []), {
-          id: Store.uid(), vertMil: d.vertMissMil || 0, horizMil: d.horizMissMil || 0,
+          id: Store.uid(), vertMil: -dV, horizMil: -dH,
           dist, addedAt: new Date().toISOString(),
         }];
         await Store.put('cartridges', cart);
