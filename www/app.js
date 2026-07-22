@@ -28,13 +28,6 @@ function el(tag, attrs = {}, ...children) {
   return n;
 }
 function fmt(n, d = 1) { return (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(d); }
-// Как fmt(), но всегда с явным знаком (toFixed сам не ставит «+» у положительных) —
-// для журналов правок, где важно однозначно видеть увеличили/уменьшили, а не гадать.
-function signedMil(n, d = 2) {
-  if (n == null || !isFinite(n)) return '—';
-  const v = Number(n);
-  return (v > 0 ? '+' : '') + v.toFixed(d);
-}
 function toast(msg) {
   const t = el('div', { class: 'toast' }, msg);
   document.body.appendChild(t);
@@ -202,20 +195,21 @@ function angDist(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 -
 // иначе палец закрывает собой цифры в центре циферблата, пока тянешь.
 // Один переиспользуемый элемент на всё приложение (создаётся при первом обращении).
 let _dragReadoutEl = null;
-function dragReadout(text) {
+function dragReadout(text, color = '#ff8b3d') {
   if (text == null) { if (_dragReadoutEl) _dragReadoutEl.style.display = 'none'; return; }
   if (!_dragReadoutEl) {
     _dragReadoutEl = document.createElement('div');
     _dragReadoutEl.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top) + 10px);left:50%;' +
-      'transform:translateX(-50%);z-index:9999;background:rgba(10,14,20,.92);color:#ff8b3d;' +
+      'transform:translateX(-50%);z-index:9999;background:rgba(10,14,20,.92);' +
       'font-size:40px;font-weight:700;padding:6px 24px;border-radius:14px;pointer-events:none;' +
       'letter-spacing:1px;box-shadow:0 6px 20px rgba(0,0,0,.4);font-variant-numeric:tabular-nums;';
     document.body.appendChild(_dragReadoutEl);
   }
   _dragReadoutEl.style.display = 'block';
+  _dragReadoutEl.style.color = color;
   _dragReadoutEl.textContent = text;
 }
-function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ' }) {
+function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ', arrowColor = '#ff8b3d' }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '-100 -100 200 200');
@@ -260,6 +254,7 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
     t.setAttribute('y', Math.sin(rad) * 70 + 3);
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('fill', '#7a8699'); t.setAttribute('font-size', '7');
+    t.setAttribute('class', 'compass-deg-label');
     t.textContent = a + '°';
     svg.appendChild(t);
   }
@@ -289,10 +284,10 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
   // Указатель ветра: ХВОСТ (колечко, -y) = ОТКУДА; ОСТРИЁ (+y) = КУДА дует.
   // Группа поворачивается на «откуда»-азимут, поэтому хвост смотрит на источник.
   arrow.innerHTML = `
-    <circle cx="0" cy="-58" r="5" fill="none" stroke="#ff8b3d" stroke-width="3"/>
-    <line x1="0" y1="-58" x2="0" y2="58" stroke="#ff8b3d" stroke-width="3" stroke-linecap="round"/>
-    <polygon points="0,72 -8,56 8,56" fill="#ff8b3d"/>
-    <circle cx="0" cy="0" r="4" fill="#ff8b3d"/>
+    <circle cx="0" cy="-58" r="5" fill="none" stroke="${arrowColor}" stroke-width="3"/>
+    <line x1="0" y1="-58" x2="0" y2="58" stroke="${arrowColor}" stroke-width="3" stroke-linecap="round"/>
+    <polygon points="0,72 -8,56 8,56" fill="${arrowColor}"/>
+    <circle cx="0" cy="0" r="4" fill="${arrowColor}"/>
   `;
   svg.appendChild(arrow);
   // центральная втулка — чтобы подпись читалась поверх стрелки
@@ -304,7 +299,7 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
   const centerNum = document.createElementNS(NS, 'text');
   centerNum.setAttribute('x', 0); centerNum.setAttribute('y', 3);
   centerNum.setAttribute('text-anchor', 'middle');
-  centerNum.setAttribute('fill', '#ff8b3d'); centerNum.setAttribute('font-size', '13');
+  centerNum.setAttribute('fill', arrowColor); centerNum.setAttribute('font-size', '13');
   centerNum.setAttribute('font-weight', '600');
   svg.appendChild(centerNum);
   const subNum = document.createElementNS(NS, 'text');
@@ -346,13 +341,13 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
     drag = true;
     const raw = angleAt(e);
     dragParity = angDist((raw + 180) % 360, value) < angDist(raw, value) ? 180 : 0;
-    dragReadout(Math.round(value) + '°');
+    dragReadout(Math.round(value) + '°', arrowColor);
     e.preventDefault();
   }
   function onMove(e) {
     if (!drag) return;
     setAngle(angleAt(e) + dragParity);
-    dragReadout(Math.round(value) + '°');
+    dragReadout(Math.round(value) + '°', arrowColor);
     e.preventDefault();
   }
   function onUp() { drag = false; dragReadout(null); }
@@ -880,36 +875,6 @@ function applyCartridgeOffset(row, cart, rezeroed) {
   row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
   return row;
 }
-// Поправка по промаху (sheet «Промах — пересчитать поправку» в /calc) —
-// отдельное, независимое от сдвига базового патрона поле: та фича — про
-// разницу зануления МЕЖДУ патронами одного оружия, эта — про эмпирическую
-// поправку ОДНОГО патрона по факту промаха. Список отдельных записей
-// (cart.spotCorrections = [{id, vertMil, horizMil, dist, addedAt}, ...]),
-// а не одно накопленное число — чтобы можно было отменить ОДНУ конкретную
-// правку (в профиле пули), если она оказалась ошибочной, не сбрасывая все
-// остальные. Итоговая поправка — сумма всех записей. Раньше sheet считал
-// новую поправку, но никуда её не сохранял — «показывает отклонение,
-// выходишь — всё как было».
-function spotCorrTotal(cart) {
-  const list = cart?.spotCorrections || [];
-  return {
-    vert: list.reduce((s, x) => s + (x.vertMil || 0), 0),
-    horiz: list.reduce((s, x) => s + (x.horizMil || 0), 0),
-  };
-}
-function applySpotCorrection(row, cart) {
-  if (!row || !cart) return row;
-  const { vert: dv, horiz: dh } = spotCorrTotal(cart);
-  if (!dv && !dh) return row;
-  row.drop_mil  = (row.drop_mil  || 0) - dv;
-  row.drift_mil = (row.drift_mil || 0) - dh;
-  row.drop_moa  = row.drop_mil  * 3.438;
-  row.drift_moa = row.drift_mil * 3.438;
-  row.drop_m  = row.range > 0 ? -row.drop_mil  / 1000 * row.range : 0;
-  row.drift_m = row.range > 0 ?  row.drift_mil / 1000 * row.range : 0;
-  return row;
-}
-
 // Sight Scale Factor — калибровка масштаба барабанов прицела (как в AB Ballistic
 // Calibration → DSF). Корректирует конечную поправку, если барабан реально даёт
 // не ровно 1 mil/клик, а немного больше/меньше. ssfElevation/ssfWindage хранятся
@@ -2529,12 +2494,38 @@ route('/calc', async () => {
     } }, `🌬 Откуда ветер`));
   secQuick.appendChild(capRow);
 
-  secQuick.appendChild(el('div', { class: 'row' },
-    numInput('v0', 'V₀, м/с', state.v0 ?? 830),
-    numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0)
-  ));
+  secQuick.appendChild(numInput('v0', 'V₀, м/с', state.v0 ?? 830));
+  // Азимут цели — раньше только числом, тянуть стрелкой было нельзя (только
+  // «Навёл на цель» компасом телефона или руками цифрой). Пользователь
+  // попросил тот же компас-виджет, что у ветра — перетаскиванием, с большим
+  // значением сверху во время драга и в центре при отпускании (те же
+  // dragReadout/centerNum из createCompass) — просто другой цвет стрелки
+  // (зелёный, не оранжевый), чтобы визуально не путать с ветром.
+  const azRow = el('div', { class: 'row wind-row' });
+  const azCol = el('div', { class: 'wind-col' });
+  azCol.appendChild(numInput('azimuth_deg', 'Азимут цели, °', state.azimuth_deg ?? 0));
+  azRow.appendChild(azCol);
+  const azWidgetWrap = el('div', { class: 'wind-compass' });
+  azRow.appendChild(azWidgetWrap);
+  secQuick.appendChild(azRow);
   secQuick.appendChild(attachAtmoButtons(form, 'pressureMbar'));
   form.appendChild(secQuick);
+  // secQuick (и в нём numInput('azimuth_deg')) должен уже быть в живом DOM
+  // формы ДО создания компаса — createCompass() сразу на конструкторе
+  // вызывает setAngle()→onChange(), которому нужен реальный form.azimuth_deg.
+  const AZ_COLOR = '#4ade80';
+  let azSyncing = false;
+  const azCompass = createCompass({
+    value: parseFloat(form.azimuth_deg?.value) || state.azimuth_deg || 0,
+    subLabel: 'АЗИМУТ ЦЕЛИ', arrowColor: AZ_COLOR,
+    onChange: (v) => {
+      azSyncing = true;
+      form.azimuth_deg.value = Math.round(v);
+      form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true }));
+      azSyncing = false;
+    }
+  });
+  azWidgetWrap.appendChild(azCompass.svg);
 
   const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
   form.appendChild(ctrlTabs);
@@ -2545,7 +2536,12 @@ route('/calc', async () => {
   bindActive();
   // азимут поменялся → циферблат/часы пересчитать; направление W1 из Open-Meteo (событие change)
   form.addEventListener('input', e => {
-    if (e.target && e.target.name === 'azimuth_deg') { buildDial(); dirInp.value = windToToNum(parseFloat(dirField(activeWind).value) || 0); updateReadout(); }
+    if (e.target && e.target.name === 'azimuth_deg') {
+      buildDial(); dirInp.value = windToToNum(parseFloat(dirField(activeWind).value) || 0); updateReadout();
+      // синхронизация компаса азимута — только если правка пришла НЕ от самого
+      // компаса (иначе setAngle→onChange→dispatchEvent зациклится сам на себя)
+      if (!azSyncing) azCompass.setAngle(parseFloat(form.azimuth_deg.value) || 0);
+    }
   });
   windDirH.addEventListener('change', () => { if (activeWind === 1) bindActive(); });
 
@@ -2744,7 +2740,7 @@ route('/calc', async () => {
       return;
     }
     // применяем сдвиг ко всем строкам + SSF (масштаб барабанов)
-    for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (c) applySpotCorrection(row, c); if (w) applySSF(row, w); }
+    for (const row of res.rows) { if (c) applyCartridgeOffset(row, c, rezeroed); if (w) applySSF(row, w); }
 
     // плашка о применённом сдвиге, если есть
     if (c && !c.isBase && !rezeroed && (c.offsetVertMil || c.offsetHorizMil)) {
@@ -2764,12 +2760,6 @@ route('/calc', async () => {
     const distLabel = el('div', { class: 'dist-pick' }, '');
     const mainGrid = el('div', { class: 'main-values' });
     const stepperRow = el('div', { class: 'range-stepper' });
-    const spotBtn = el('button', { type: 'button', class: 'spot-btn',
-      onclick: () => {
-        const row = res.rows.find(r => r.range === bigDist) || res.rows[0];
-        if (row) openSpottingSheet(row.drop_mil, row.drift_mil, bigDist, c,
-          () => form.dispatchEvent(new Event('submit')));
-      } }, '🎯 Промах — пересчитать поправку');
     const detailStrip = el('div', { class: 'hud-detail' });
     // панель вида «Сетка» (по умолчанию скрыта)
     const reticlePanel = el('div', { class: 'hud-view', hidden: true });
@@ -2780,7 +2770,7 @@ route('/calc', async () => {
     function showHudView(id) {
       activeHudView = id; localStorage.setItem('calc:hudView', id);
       const sol = id === 'solution';
-      mainGrid.hidden = !sol; detailStrip.hidden = !sol; spotBtn.hidden = !sol;
+      mainGrid.hidden = !sol; detailStrip.hidden = !sol;
       reticlePanel.hidden = id !== 'reticle';
       [...hudTabs.children].forEach(ch => ch.classList.toggle('active', ch.dataset.v === id));
       if (id === 'reticle') {
@@ -2798,7 +2788,6 @@ route('/calc', async () => {
     solCard.appendChild(reticlePanel);
     solCard.appendChild(stepperRow);
     solCard.appendChild(detailStrip);
-    solCard.appendChild(spotBtn);
     out.appendChild(solCard);
 
     // живой single-distance solve (быстрее чем full table)
@@ -2812,7 +2801,6 @@ route('/calc', async () => {
       const row = r2.rows[0];
       if (row) row.mach = r2.speedOfSound ? row.vel_mps / r2.speedOfSound : null;
       if (row && c) applyCartridgeOffset(row, c, rezeroed);
-      if (row && c) applySpotCorrection(row, c);
       if (row && w) applySSF(row, w);
       return row;
     }
@@ -3292,7 +3280,7 @@ route('/profile/:id', async ({ id }, query) => {
     const dsfSec = el('div', { style: 'margin-top:10px' });
     dsfSec.appendChild(el('h2', {}, '📐 Калибровка BC по Mach (аналог DSF в AB)'));
     dsfSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
-      'Работает только в переходной/дозвуковой зоне, сверхзвук не трогает (там калибруй V₀). По офиц. рекомендации AB — точки лучше всего ставить около Mach 1.2 и Mach 0.9.'));
+      'Работает только в переходной/дозвуковой зоне, сверхзвук не трогает (там калибруй V₀). По офиц. рекомендации AB — точки лучше всего ставить около Mach 1.2 и Mach 0.9. Если ближние дистанции и так точны — добавь ЕЩЁ точку на ближней дистанции со значением «как сейчас показывает калькулятор» (иначе поправка одной дальней точки размажется на всю траекторию, включая уже верные близкие дистанции).'));
     const pts = (cFull.truingPoints || []).slice().sort((a, b) => b.machAt - a.machAt);
     if (pts.length) {
       const tbl = el('table', { class: 'table' });
@@ -3308,42 +3296,6 @@ route('/profile/:id', async ({ id }, query) => {
     }
     dsfSec.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => openTruingSheet(cFull) }, '🎯 Добавить точку калибровки'));
     f.appendChild(dsfSec);
-
-    // === 🎯 Поправки по фактическому попаданию (из «Промах» в /calc) ===
-    // Каждая запись — отдельный промах, по которому пересчитывалась поправка;
-    // хранятся списком (не одним накопленным числом), чтобы конкретную
-    // ошибочную запись можно было отменить (× ниже), не сбрасывая остальные.
-    const spotSec = el('div', { style: 'margin-top:10px' });
-    spotSec.appendChild(el('h2', {}, '🎯 Поправки по попаданию'));
-    const spotList = (cFull.spotCorrections || []).slice().sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
-    if (spotList.length) {
-      const { vert: totV, horiz: totH } = spotCorrTotal(cFull);
-      // Знак — относительно того, что ПЕРВОНАЧАЛЬНО дал калькулятор: минус —
-      // мы уменьшили его поправку (пуля ушла в сторону подкрутки — калькулятор
-      // перебрал), плюс — увеличили (пуля не долетела до подкрутки — калькулятор
-      // недобрал). Именно поэтому знак здесь — это -vertMil/-horizMil (та же
-      // дельта, что applySpotCorrection реально вычитает из drop_mil/drift_mil),
-      // а не сырое «куда ушла пуля» из sheet'а — так не нужно потом гадать.
-      spotSec.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' },
-        `Итого применяется ко всем расчётам: V ${signedMil(-totV)}, H ${signedMil(-totH)} mil (минус — уменьшили поправку калькулятора, плюс — увеличили).`));
-      for (const s of spotList) {
-        const dV = -(s.vertMil || 0), dH = -(s.horizMil || 0);
-        spotSec.appendChild(el('div', { class: 'option' },
-          el('span', {}, `${s.dist ?? '—'} м · поправка V ${signedMil(dV)} / H ${signedMil(dH)} mil`),
-          el('span', { class: 'meta' }, s.addedAt ? new Date(s.addedAt).toLocaleDateString('ru-RU') : ''),
-          el('span', { class: 'ico', style: 'width:auto;font-size:18px;cursor:pointer', onclick: async () => {
-            if (!confirm('Отменить эту поправку?')) return;
-            cFull.spotCorrections = (cFull.spotCorrections || []).filter(x => x.id !== s.id);
-            await Store.put('cartridges', cFull);
-            toast('Поправка отменена');
-            navigate();
-          } }, '×')
-        ));
-      }
-    } else {
-      spotSec.appendChild(el('div', { class: 'muted', style: 'font-size:12px' }, 'Пока ни одной записи — появятся после «🎯 Промах» на экране калькулятора.'));
-    }
-    f.appendChild(spotSec);
   }
 
   // === 📝 Notes ===
@@ -3852,6 +3804,8 @@ route('/cartridge/:id', async ({ id }) => {
   f.appendChild(el('div', { class: 'banner' },
     'Добавляй точки на разных дистанциях — solver интерполирует BC по Mach. Литц рекомендует ≥3 точки от ближней (полный сверхзвук) до дальней (трансзвук). ' +
     'Если сверхзвук уже бьёт точно (там калибруй V₀, не BC) — точки калибровки по AB официально лучше всего ставить около Mach 1.2 и Mach 0.9 (переход через звуковой барьер), это даёт максимально надёжную поправку именно в переходной/дозвуковой зоне.'));
+  f.appendChild(el('div', { class: 'banner accent' },
+    '⚠️ Если ближние дистанции уже бьют точно и трогать их не нужно (расхождение началось только с какой-то одной дистанции) — ОДНОЙ точки на дальней дистанции мало: с одной точкой её поправка применится сразу КО ВСЕЙ траектории, включая уже верные близкие дистанции. Добавь ЕЩЁ одну точку на ближней дистанции, где всё и так точно — введи туда то значение, которое калькулятор УЖЕ показывает на этой дистанции (это скажет солверу «здесь поправка не нужна»). Тогда между двумя точками поправка плавно нарастёт, ближе — останется как было, дальше введённой дальней точки — экстраполируется с новым BC.'));
   const pts = (c.truingPoints || []).slice().sort((a, b) => b.machAt - a.machAt);
   if (pts.length) {
     const tbl = el('table', { class: 'table' });
@@ -6202,85 +6156,6 @@ route('/atmo-presets', async () => {
     saveAtmoPresets(next); navigate();
   }}, '＋ Снепшот текущей атмо из Калькулятора'));
 });
-
-// ============== SPOTTING CORRECTIONS (Wave 3.2) — sheet, вызывается из /calc ==============
-// cart — активный патрон (для сохранения записи в cart.spotCorrections[],
-// см. applySpotCorrection/spotCorrTotal выше); onSave — коллбэк, форсирующий
-// пересчёт HUD после сохранения (обычно form.dispatchEvent(new Event('submit'))).
-// Раньше здесь только показывался пересчёт, кнопки «Сохранить» не было вообще —
-// значения нигде не сохранялись, при закрытии sheet всё пропадало без следа.
-// Список (а не одно накопленное число) — чтобы конкретную ошибочную запись
-// можно было отменить отдельно в профиле пули, не сбрасывая остальные.
-// РЕДИЗАЙН (см. WORKLOG §«Промах — вход по факту прилёта, не по «куда ушла
-// пуля»): первая версия просила ввести «куда УШЛА пуля» (миссмил со знаком
-// ВВЕРХ+/ВНИЗ−) — реальный кейс показал, что стрелок мыслит не так: он
-// приезжает к мишени, определяет РЕАЛЬНУЮ поправку, которая дала бы попадание
-// (например «на 800 было 8.1, а надо было 8.4»), и хочет ввести именно ЭТО
-// готовое число, а не пересчитывать в уме разницу и её знак. Ввод «8.4» в
-// старую версию читался как «миссмил», давая 8.1−8.4=−0.3 — бессмысленную,
-// пугающую поправку. Теперь поля так и называются «реальная поправка» и
-// предзаполнены текущим расчётным значением: не трогал — 0 изменений;
-// вписал своё найденное число — именно оно и станет новой поправкой.
-function openSpottingSheet(currentDropMil, currentDriftMil, dist, cart, onSave) {
-  openSheet((sheet, close) => {
-    sheet.appendChild(el('h3', {}, 'Промах — поправка'));
-    sheet.appendChild(el('div', { class: 'sub' }, `Дистанция ${dist} м, сейчас калькулятор даёт V ${fmt(currentDropMil,2)} mil, H ${fmt(currentDriftMil,2)} mil`));
-    sheet.appendChild(el('div', { class: 'banner' },
-      'Впиши РЕАЛЬНУЮ поправку — то число mil, с которым ты в этот раз реально попал бы в мишень (не разницу, а готовое итоговое значение). Ничего не менял — оставь как есть, ничего не сохранится.'));
-    const { vert: savedV, horiz: savedH } = spotCorrTotal(cart);
-    if (cart && (savedV || savedH)) {
-      sheet.appendChild(el('div', { class: 'banner accent' },
-        `Уже сохранены поправки по прошлым промахам: V ${signedMil(-savedV)}, H ${signedMil(-savedH)} mil — новая добавится к ним. Список всех записей — в профиле пули.`));
-    }
-    sheet.appendChild(el('div', { class: 'row' },
-      numInput('vertRealMil', 'Реальная вертикаль (mil)', fmt(currentDropMil, 2), { step: '0.1' }),
-      numInput('horizRealMil', 'Реальная горизонталь (mil)', fmt(currentDriftMil, 2), { step: '0.1' })
-    ));
-    const result = el('div', { class: 'card', style: 'margin-top:10px' });
-    sheet.appendChild(result);
-    function recalc() {
-      const d = readForm(sheet);
-      const newDrop = d.vertRealMil ?? currentDropMil;
-      const newDrift = d.horizRealMil ?? currentDriftMil;
-      const dV = newDrop - currentDropMil, dH = newDrift - currentDriftMil;
-      result.innerHTML = '';
-      result.appendChild(el('div', { class: 'kv' },
-        el('div', { class: 'k' }, 'Будет сохранена поправка'),
-        el('div', { class: 'v accent' }, `V ${signedMil(dV)} / H ${signedMil(dH)} mil`)
-      ));
-      if (!dV && !dH) {
-        result.appendChild(el('div', { class: 'muted center', style: 'font-size:12px;margin-top:4px' }, 'Значение не менялось — сохранять нечего.'));
-      }
-    }
-    sheet.addEventListener('input', recalc);
-    recalc();
-    if (cart) {
-      sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: async () => {
-        const d = readForm(sheet);
-        const newDrop = d.vertRealMil ?? currentDropMil, newDrift = d.horizRealMil ?? currentDriftMil;
-        const dV = newDrop - currentDropMil, dH = newDrift - currentDriftMil;
-        if (!dV && !dH) { toast('Значение не менялось — нечего сохранять'); return; }
-        // мутируем cart НА МЕСТЕ (не просто {...cart, ...}) — это тот же объект,
-        // что уже держит в замыкании форма /calc (переменная `c`); иначе после
-        // Store.put расчёт на экране продолжал бы использовать старые, ещё не
-        // сохранённые значения вплоть до полной перезагрузки страницы.
-        // vertMil/horizMil хранятся в СТАРОМ формате applySpotCorrection
-        // (row.drop_mil -= vertMil), поэтому здесь знак обратный дельте dV.
-        cart.spotCorrections = [...(cart.spotCorrections || []), {
-          id: Store.uid(), vertMil: -dV, horizMil: -dH,
-          dist, addedAt: new Date().toISOString(),
-        }];
-        await Store.put('cartridges', cart);
-        toast('Поправка сохранена — применена ко всем расчётам этого патрона');
-        close();
-        if (onSave) onSave();
-      } }, '💾 Сохранить поправку'));
-    }
-    sheet.appendChild(el('div', { class: 'row-btn' },
-      el('button', { type: 'button', class: 'btn ghost', onclick: close }, 'Закрыть')
-    ));
-  });
-}
 
 // ============== WEZ MONTE CARLO (Wave 3.3) ==============
 function gaussN() {

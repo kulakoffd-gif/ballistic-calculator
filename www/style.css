@@ -392,6 +392,11 @@ label { text-align: center; }
 .wind-col { flex: 1; min-width: 0; }
 .wind-compass { flex: 0 0 140px; display: flex; justify-content: center; position: relative; }
 .wind-compass .compass { width: 140px; max-width: 140px; }
+/* Мелкие цифры-подсказки (30°/60°/120°...) при масштабировании SVG до 140px
+   становятся нечитаемым мусором — прячем их в маленьком превью, оставляя
+   только буквы С/В/Ю/З (крупнее, важнее для ориентации). В развёрнутом виде
+   (.wind-big, см. ниже) цифры остаются — там места достаточно. */
+.wind-compass .compass-deg-label { display: none; }
 .wind-expand {
   position: absolute; top: 0; right: 0; width: 30px; height: 30px;
   border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border);
