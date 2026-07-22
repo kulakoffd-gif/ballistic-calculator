@@ -3414,13 +3414,20 @@ route('/profile/:id', async ({ id }, query) => {
     } }, '📤 Поделиться профилем (QR)'));
   }
 
-  f.appendChild(el('button', { type: 'submit', class: 'btn' }, 'Сохранить и сделать активным'));
+  // Раньше единственной кнопкой была «Сохранить и сделать активным» — сабмит
+  // формы всегда переключал активный профиль. Пользователь явно попросил:
+  // редактировать/сохранять профиль без обязательной активации (например,
+  // поправил заметки или калибровку у неактивного сейчас патрона). Теперь
+  // две отдельные кнопки: обычная «Сохранить» (type=button, не активирует) и
+  // «Сделать активным» (тоже сохраняет — иначе активировался бы не сохранённый
+  // только что вариант — плюс переключает активный профиль).
+  f.appendChild(el('button', { type: 'button', class: 'btn outline', onclick: () => doSave(false) }, '💾 Сохранить'));
+  f.appendChild(el('button', { type: 'submit', class: 'btn' }, '🎯 Сохранить и сделать активным'));
   if (!isNew) f.appendChild(el('button', { type: 'button', class: 'btn danger', onclick: async () => {
     if (confirm('Удалить профиль? (оружие и патрон останутся в своих разделах)')) { await Store.del('profiles', p.id); if (localStorage.getItem('activeProfileId') === p.id) localStorage.removeItem('activeProfileId'); location.hash = '#/profiles'; }
   } }, 'Удалить профиль'));
 
-  f.addEventListener('submit', async e => {
-    e.preventDefault();
+  async function doSave(activate) {
     if (!validateRequiredFields(f)) return;
     const d = readForm(f);
     const wExisting = d.weaponId ? weapons.find(x => x.id === d.weaponId) : null;
@@ -3444,12 +3451,17 @@ route('/profile/:id', async ({ id }, query) => {
     };
     const savedC = await Store.put('cartridges', cRec);
     const saved = await Store.put('profiles', { ...p, name: d.name, weaponId: savedW.id, cartridgeId: savedC.id, notes: d.notes });
-    localStorage.setItem('activeProfileId', saved.id);
-    localStorage.setItem('activeWeaponId', saved.weaponId || '');
-    localStorage.setItem('activeCartridgeId', saved.cartridgeId || '');
-    toast('Профиль сохранён и активен');
+    if (activate) {
+      localStorage.setItem('activeProfileId', saved.id);
+      localStorage.setItem('activeWeaponId', saved.weaponId || '');
+      localStorage.setItem('activeCartridgeId', saved.cartridgeId || '');
+      toast('Профиль сохранён и активен');
+    } else {
+      toast('Сохранено');
+    }
     history.back();
-  });
+  }
+  f.addEventListener('submit', e => { e.preventDefault(); doSave(true); });
   view.appendChild(f);
 });
 
