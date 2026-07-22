@@ -209,7 +209,11 @@ function dragReadout(text, color = '#ff8b3d') {
   _dragReadoutEl.style.color = color;
   _dragReadoutEl.textContent = text;
 }
-function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ', arrowColor = '#ff8b3d' }) {
+// pointerStyle: 'arrow' (по умолч., как у ветра — линия сквозь центр, важно
+// «откуда/куда», т.е. направление-вектор) или 'target' (значок 🎯 на самом
+// кольце циферблата — для позиции цели по периметру, а не направления через
+// центр; перетаскиваешь сам значок вдоль окружности).
+function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLabel = 'КУДА ДУЕТ', arrowColor = '#ff8b3d', pointerStyle = 'arrow' }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '-100 -100 200 200');
@@ -279,16 +283,26 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
     svg.appendChild(fireLab);
   }
 
-  // wind arrow group (orange, поверх)
+  // указатель (orange/цветной, поверх) — либо стрелка сквозь центр (ветер),
+  // либо значок-мишень на кольце (позиция цели по периметру)
   const arrow = document.createElementNS(NS, 'g');
-  // Указатель ветра: ХВОСТ (колечко, -y) = ОТКУДА; ОСТРИЁ (+y) = КУДА дует.
-  // Группа поворачивается на «откуда»-азимут, поэтому хвост смотрит на источник.
-  arrow.innerHTML = `
-    <circle cx="0" cy="-58" r="5" fill="none" stroke="${arrowColor}" stroke-width="3"/>
-    <line x1="0" y1="-58" x2="0" y2="58" stroke="${arrowColor}" stroke-width="3" stroke-linecap="round"/>
-    <polygon points="0,72 -8,56 8,56" fill="${arrowColor}"/>
-    <circle cx="0" cy="0" r="4" fill="${arrowColor}"/>
-  `;
+  if (pointerStyle === 'target') {
+    // значок мишени сидит НА кольце (радиус ~82) и тащится вдоль окружности —
+    // никакой «головы/хвоста» через центр, поэтому и dragParity ниже не нужен.
+    arrow.innerHTML = `
+      <circle cx="0" cy="-82" r="13" fill="#0b0f14" stroke="${arrowColor}" stroke-width="1.5"/>
+      <text x="0" y="-77" text-anchor="middle" font-size="15">🎯</text>
+    `;
+  } else {
+    // Указатель ветра: ХВОСТ (колечко, -y) = ОТКУДА; ОСТРИЁ (+y) = КУДА дует.
+    // Группа поворачивается на «откуда»-азимут, поэтому хвост смотрит на источник.
+    arrow.innerHTML = `
+      <circle cx="0" cy="-58" r="5" fill="none" stroke="${arrowColor}" stroke-width="3"/>
+      <line x1="0" y1="-58" x2="0" y2="58" stroke="${arrowColor}" stroke-width="3" stroke-linecap="round"/>
+      <polygon points="0,72 -8,56 8,56" fill="${arrowColor}"/>
+      <circle cx="0" cy="0" r="4" fill="${arrowColor}"/>
+    `;
+  }
   svg.appendChild(arrow);
   // центральная втулка — чтобы подпись читалась поверх стрелки
   const hub = document.createElementNS(NS, 'circle');
@@ -339,8 +353,13 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
   let drag = false, dragParity = 0;
   function onDown(e) {
     drag = true;
-    const raw = angleAt(e);
-    dragParity = angDist((raw + 180) % 360, value) < angDist(raw, value) ? 180 : 0;
+    // В режиме «мишень» перетаскивается один значок без противоположного
+    // конца — неоднозначности «за какой конец схватились» просто нет,
+    // dragParity всегда 0 (сырой угол пальца = угол значка).
+    if (pointerStyle !== 'target') {
+      const raw = angleAt(e);
+      dragParity = angDist((raw + 180) % 360, value) < angDist(raw, value) ? 180 : 0;
+    }
     dragReadout(Math.round(value) + '°', arrowColor);
     e.preventDefault();
   }
@@ -2517,7 +2536,7 @@ route('/calc', async () => {
   let azSyncing = false;
   const azCompass = createCompass({
     value: parseFloat(form.azimuth_deg?.value) || state.azimuth_deg || 0,
-    subLabel: 'АЗИМУТ ЦЕЛИ', arrowColor: AZ_COLOR,
+    subLabel: 'АЗИМУТ ЦЕЛИ', arrowColor: AZ_COLOR, pointerStyle: 'target',
     onChange: (v) => {
       azSyncing = true;
       form.azimuth_deg.value = Math.round(v);
