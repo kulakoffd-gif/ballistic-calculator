@@ -389,7 +389,15 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
 function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '-100 -100 200 200');
+  // viewBox расширен относительно раньшего -100..100 — подписи направлений
+  // («встр./справа/попут./слева») раньше сидели на радиусе 86, вплотную к
+  // кольцу (88) и ровно на тех же углах, что и большие цифры часов 12/3/6/9
+  // на радиусе 68 — визуально слипались (у «слева» ещё и обрезался край
+  // текста старым viewBox). Кольцо/цифры/стрелка остались на тех же
+  // координатах — просто добавили запас по краям под вынесенные наружу
+  // подписи направлений (радиус 100, см. ниже), чтобы они не касались
+  // ни кольца, ни цифр.
+  svg.setAttribute('viewBox', '-122 -122 244 244');
   svg.setAttribute('class', 'compass');
   // фон
   const bg = document.createElementNS(NS, 'circle');
@@ -414,13 +422,14 @@ function createWindClock({ value = 0, shotAz = 0, onChange, size = 280 }) {
     svg.appendChild(t);
     labels.push({ H, el: t });
   }
-  // подписи направлений
+  // подписи направлений — вынесены ЗА кольцо (радиус 100 против кольца 88),
+  // чтобы не налезать на большие цифры часов на тех же углах (12/3/6/9).
   for (const [lab, H, color] of [['встр.',12,'#ff8b3d'],['справа',3,'#7a8699'],['попут.',6,'#7a8699'],['слева',9,'#7a8699']]) {
     const ang = H * 30 - 90;
     const rad = ang * Math.PI / 180;
     const t = document.createElementNS(NS, 'text');
-    t.setAttribute('x', Math.cos(rad) * 86);
-    t.setAttribute('y', Math.sin(rad) * 86 + 3);
+    t.setAttribute('x', Math.cos(rad) * 100);
+    t.setAttribute('y', Math.sin(rad) * 100 + 3);
     t.setAttribute('text-anchor', 'middle');
     t.setAttribute('font-size', '7');
     t.setAttribute('fill', color);
@@ -2770,8 +2779,19 @@ route('/calc', async () => {
     }
 
     // — БОЛЬШАЯ карточка решения (AB Quantum-style: live ± stepper + стрелки направления) —
-    const lastBig = parseFloat(localStorage.getItem('calc:bigDist')) || res.rows[Math.floor(res.rows.length / 2)].range;
-    let bigDist = res.rows.find(r => r.range === lastBig)?.range ?? res.rows[0].range;
+    // РЕАЛЬНЫЙ БАГ: bigDist раньше ОБЯЗАН был совпасть с одной из дистанций
+    // «таблицы» (res.rows, из поля «Дистанции для таблицы») — если пользователь
+    // вручную вписывал в HUD дистанцию, которой нет в этом списке (например
+    // 1200 м при таблице 100..1000), она СРАЗУ показывалась верно (solveAt
+    // считает для любой дистанции независимо от таблицы), но при ЛЮБОМ другом
+    // изменении поля (например скорости ветра) весь submit пересчитывался
+    // заново, и вот тут bigDist тихо откатывался на res.rows[0].range (первую
+    // дистанцию таблицы, обычно 100) — «сбрасывает введённые данные». bigDist
+    // никогда не обязан быть «в таблице»: solveAt() и так считает для любой
+    // дистанции — используем то, что реально сохранено, без проверки на
+    // совпадение.
+    const savedBig = parseFloat(localStorage.getItem('calc:bigDist'));
+    let bigDist = savedBig > 0 ? savedBig : res.rows[Math.floor(res.rows.length / 2)].range;
     const lastStep = parseFloat(localStorage.getItem('calc:bigStep')) || 50;
     let stepSize = lastStep;
     const reticle = w?.reticleId ? await Store.get('reticles', w.reticleId) : null;
@@ -2950,7 +2970,9 @@ route('/calc', async () => {
 
     // — параметры мелким kv —
     const DA_ft = Ballistics.densityAltitude_ft({tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity});
-    const rowAt = res.rows.find(r => r.range === bigDist) || res.rows[0];
+    // solveAt (не res.rows.find) — та же причина, что и у bigDist выше:
+    // bigDist может быть дистанцией, которой нет в «таблице» res.rows.
+    const rowAt = solveAt(bigDist) || res.rows[0];
     const massGr = d.bulletMass_gr || c?.bulletMass_gr;
     const calIn  = c?.caliber_in;
     const E_J  = massGr ? Ballistics.kineticEnergyJ(massGr, rowAt.vel_mps) : null;

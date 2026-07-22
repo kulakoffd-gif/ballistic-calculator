@@ -349,7 +349,14 @@ label { text-align: center; }
 .calc-hud-area .axis .sub-val { font-size: 11px; }
 .calc-hud-area .range-stepper { margin-top: 4px; margin-bottom: 2px; }
 .calc-hud-area .range-stepper button.step { width: 38px; height: 38px; font-size: 20px; }
-.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 80px; padding: 5px 10px; }
+/* 80px хватало только для 3 цифр — на 1000+ м (частый случай на длинных
+   дистанциях) «1» обрезалась, оставались видны только «000». Плюс скрыт
+   нативный спинер ▲▼ — свои кнопки шага уже есть рядом, а спинер только
+   отъедал ширину у самих цифр. */
+.calc-hud-area .range-stepper .range-input { font-size: 20px; width: 108px; padding: 5px 6px; }
+.calc-hud-area .range-stepper .range-input::-webkit-inner-spin-button,
+.calc-hud-area .range-stepper .range-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.calc-hud-area .range-stepper .range-input { -moz-appearance: textfield; }
 .calc-hud-area .dist-pick { font-size: 10px; margin-bottom: 4px; }
 /* Строка деталей под решением (AB Quantum-style): TOF · энергия · скорость · Mach */
 .hud-detail {
