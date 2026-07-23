@@ -399,6 +399,11 @@ label { text-align: center; }
 .wind-col { flex: 1; min-width: 0; }
 .wind-compass { flex: 0 0 140px; display: flex; justify-content: center; position: relative; }
 .wind-compass .compass { width: 140px; max-width: 140px; }
+/* Циферблат с 3 указателями (W1/W2/азимут) — своя, отдельная от узкой
+   боковой колонки, полноширинная раскладка; крупнее, чтобы указатели было
+   удобнее хватать пальцем по отдельности. */
+.wind-compass-lg { flex: none; }
+.wind-compass-lg .compass { width: min(70vw, 260px); max-width: 260px; }
 /* Мелкие цифры-подсказки (30°/60°/120°...) при масштабировании SVG до 140px
    становятся нечитаемым мусором — прячем их в маленьком превью, оставляя
    только буквы С/В/Ю/З (крупнее, важнее для ориентации). В развёрнутом виде
