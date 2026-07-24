@@ -31,6 +31,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Без версии в URL браузер может отдать app.js из HTTP-кэша (GH Pages
+      # шлёт max-age=600) даже сразу после деплоя, и вкладку, открытую ДО
+      # деплоя, SPA вообще никогда не перечитает (hash-роутинг не делает
+      # новых запросов) — пользователь долго проверяет фикс на старом коде,
+      # думая, что мы его не задеплоили. ?v=<sha> форсирует новый URL на
+      # каждый деплой, чтобы кэш браузера/SW не мог его подсунуть.
+      - name: Cache-bust local script/style URLs
+        run: |
+          cd www
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          for f in ballistics.js units.js storage.js devices.js yadisk.js backup.js app.js style.css; do
+            sed -i "s#\"$f\"#\"$f?v=$SHA_SHORT\"#g" index.html
+          done
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
