@@ -238,6 +238,21 @@ label { text-align: center; }
   background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border);
 }
+/* Кнопки-«захваты» датчиком телефона (азимут/ветер W1/W2 на /calc) — были
+   плоскими прямоугольниками с тем же фоном (--panel-2), что и соседнее
+   поле V₀ ниже (.field-group тоже на --panel-2) — визуально сливались в
+   одну сплошную полосу, было неясно, что это именно кнопки. Тень+градиент
+   дают им объём («нажимаемость»), явно отделяя от плоских полей ввода. */
+.btn-capture {
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  box-shadow: 0 2px 0 rgba(0,0,0,.15), 0 3px 6px rgba(0,0,0,.14);
+}
+.btn-capture:active {
+  box-shadow: 0 1px 2px rgba(0,0,0,.12) inset;
+  transform: translateY(1px);
+}
+.cap-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cap-row .btn { font-size: 11px; padding: 10px 6px; letter-spacing: 0.5px; }
 
 /* ===== option list (radio rows) ===== */
 .option-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
@@ -394,6 +409,13 @@ label { text-align: center; }
   font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
   color: var(--accent); text-align: center; margin-bottom: 8px;
 }
+/* глобальный label { min-height:28px } резервирует место под 2-строчные
+   подписи — для короткой однострочной «V₀, м/с» это оставляет пустой
+   промежуток МЕЖДУ текстом подписи и полем ввода (подпись рендерится по
+   верхнему краю своего 28px-бокса, а input идёт только после margin-bottom
+   4px). Внутри этой карточки подписи короткие — убираем резерв, подпись
+   садится прямо над полем. */
+.form-pinned .field-group > label { min-height: 0; }
 /* компас ветра рядом с полем скорости */
 .wind-row { display: flex; gap: 12px; align-items: center; }
 .wind-col { flex: 1; min-width: 0; }
@@ -534,7 +556,12 @@ label { text-align: center; }
 .field-group {
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--panel-2);
+  /* Чуть темнее/ниже, чем --panel-2 (тот же тон, что у .btn.ghost) — иначе
+     поле ввода и соседняя кнопка над/под ним визуально сливаются в одну
+     полосу (нет теней, нет разницы цвета). Поле — плоское/«утопленное»,
+     кнопка (.btn-capture) — приподнятая тенью; так однозначно видно, где
+     тут поле, а где кнопка. */
+  background: color-mix(in srgb, var(--panel-2) 88%, var(--text) 6%);
   padding: 8px 10px 10px;
   margin-bottom: 10px;
 }

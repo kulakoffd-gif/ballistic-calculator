@@ -2574,20 +2574,30 @@ route('/calc', async () => {
   });
   updateReadout();
 
-  // захват компасом телефона (спинка смотрит ОТКУДА дует/куда наведено)
-  const capRow = el('div', { class: 'row', style: 'margin-top:8px' });
-  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+  // захват компасом телефона (спинка смотрит ОТКУДА дует/куда наведено) —
+  // 📱 в подписи, чтобы было видно, что кнопка использует датчик телефона,
+  // а не просто открывает какой-то экран. Три кнопки (азимут + оба ветра) —
+  // сетка на 3 равные колонки (.cap-row), а не общий .row (flex без
+  // grow/basis плыл бы при 3 разных по длине подписях).
+  const capRow = el('div', { class: 'cap-row', style: 'margin-top:8px' });
+  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost btn-capture', style: 'margin:0',
     onclick: async (ev) => {
       const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
       try { const h = await captureHeading(); form.azimuth_deg.value = Math.round(h); form.azimuth_deg.dispatchEvent(new Event('input', { bubbles: true })); toast(compassWarn() || `Азимут цели: ${Math.round(h)}°`); }
       catch (e) { toast('Компас: ' + e.message); } finally { b.textContent = old; b.disabled = false; }
-    } }, '🎯 Навёл на цель'));
-  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost', style: 'margin:0',
+    } }, '🎯📱 Азимут цели'));
+  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost btn-capture', style: 'margin:0',
     onclick: async (ev) => {
       const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
       try { const h = await captureHeading(); windDirH.value = Math.round(fromToTo(h)); windDirH.dispatchEvent(new Event('input', { bubbles: true })); dial?.setPointerValue('w1', h); syncFields(); toast(compassWarn() || `W1 откуда: ${Math.round(h)}°`); }
       catch (e) { toast('Компас: ' + e.message); } finally { b.textContent = old; b.disabled = false; }
-    } }, '🌬 Откуда ветер W1'));
+    } }, '🌬📱 Откуда ветер W1'));
+  capRow.appendChild(el('button', { type: 'button', class: 'btn ghost btn-capture', style: 'margin:0',
+    onclick: async (ev) => {
+      const b = ev.currentTarget, old = b.textContent; b.textContent = '⏳…'; b.disabled = true;
+      try { const h = await captureHeading(); windDir2H.value = Math.round(fromToTo(h)); windDir2H.dispatchEvent(new Event('input', { bubbles: true })); dial?.setPointerValue('w2', h); syncFields(); toast(compassWarn() || `W2 откуда: ${Math.round(h)}°`); }
+      catch (e) { toast('Компас: ' + e.message); } finally { b.textContent = old; b.disabled = false; }
+    } }, '🌬📱 Откуда ветер W2'));
   secQuick.appendChild(capRow);
 
   secQuick.appendChild(numInput('v0', 'V₀, м/с', state.v0 ?? 830));
