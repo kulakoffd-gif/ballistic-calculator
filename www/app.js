@@ -2600,7 +2600,12 @@ route('/calc', async () => {
     } }, '🌬📱 Откуда ветер W2'));
   secQuick.appendChild(capRow);
 
-  secQuick.appendChild(numInput('v0', 'V₀, м/с', state.v0 ?? 830));
+  // V₀ раньше был редактируемым полем прямо тут — убрано по явной просьбе:
+  // на соревнованиях случайное «в спешке» изменение скорости даёт огромную
+  // погрешность в поправках, а менять V₀ и так можно в профиле пули. Значение
+  // остаётся в форме СКРЫТЫМ полем (солверу оно нужно), просто больше не
+  // редактируется с этого экрана — редактирование только в /cartridge/:id.
+  secQuick.appendChild(el('input', { type: 'hidden', name: 'v0', 'data-numeric': '1', value: state.v0 ?? 830 }));
   secQuick.appendChild(attachAtmoButtons(form, 'pressureMbar'));
   form.appendChild(secQuick);
   // Циферблат строим ТОЛЬКО теперь, когда numInput('azimuth_deg') уже в
