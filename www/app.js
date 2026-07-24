@@ -2498,7 +2498,9 @@ route('/calc', async () => {
   }
   function updateReadout() {
     const f1 = toFrom(parseFloat(windDirH.value) || 0), f2 = toFrom(parseFloat(windDir2H.value) || 0), az = azNow();
-    windReadout.textContent = `W1 откуда ${Math.round(f1)}° (${windToClock(parseFloat(windDirH.value)||0, az)}) · W2 откуда ${Math.round(f2)}° (${windToClock(parseFloat(windDir2H.value)||0, az)}) · цель ${Math.round(az)}°`;
+    const w2Active = parseFloat(form.windSpeed2?.value) > 0;
+    const swTxt = w2Active ? ` · переключение на ${Math.round(parseFloat(form.windSwitchDistance_m?.value) || 0)} м` : '';
+    windReadout.textContent = `W1 откуда ${Math.round(f1)}° (${windToClock(parseFloat(windDirH.value)||0, az)}) · W2 откуда ${Math.round(f2)}° (${windToClock(parseFloat(windDir2H.value)||0, az)}) · цель ${Math.round(az)}°${swTxt}`;
   }
   function openWindBig() {
     const overlay = el('div', { class: 'wind-modal' });
@@ -2542,14 +2544,20 @@ route('/calc', async () => {
   dialCenterWrap.appendChild(widgetWrap);
   secQuick.appendChild(dialCenterWrap);
   secQuick.appendChild(el('div', { class: 'row' },
-    numInputWithSources('windSpeed', 'Скорость W1, м/с', state.windSpeed ?? 0,
+    numInputWithSources('windSpeed', 'Скорость W1, м/с (у стрелка)', state.windSpeed ?? 0,
       [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)], { step: '0.1' }),
-    numInput('windSpeed2', 'Скорость W2, м/с', state.windSpeed2 ?? 0, { step: '0.1' })
+    numInput('windSpeed2', 'Скорость W2, м/с (дальше по трассе)', state.windSpeed2 ?? 0, { step: '0.1' })
   ));
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('windFrom1', 'Направление W1, ° (откуда)', Math.round(toFrom(parseFloat(windDirH.value) || 0)), { step: '1' }),
     numInput('windFrom2', 'Направление W2, ° (откуда)', Math.round(toFrom(parseFloat(windDir2H.value) || 0)), { step: '1' })
   ));
+  // Дистанция, на которой ветер реально меняется (например край леса/выход
+  // из ущелья) — активна, только если задана скорость W2 (>0). Пуля летит
+  // при W1 ДО этой дистанции и при W2 ПОСЛЕ — настоящая физика по участкам
+  // трассы (см. ballistics.js: windSwitchDistance_m), а не два параллельных
+  // «а что если» сценария, как было раньше.
+  secQuick.appendChild(numInput('windSwitchDistance_m', 'Дистанция переключения ветра W1→W2, м', state.windSwitchDistance_m ?? 500));
   // Азимут цели — раньше был отдельным виджетом со своим циферблатом;
   // теперь значок 🎯 живёт на ЭТОМ ЖЕ циферблате (выше), а тут — просто
   // числовое поле для ручного ввода/сверки, синхронизированное с ним.
@@ -2562,6 +2570,7 @@ route('/calc', async () => {
   secQuick.addEventListener('input', e => {
     if (e.target.name === 'windFrom1') { windDirH.value = Math.round(fromToTo(parseFloat(e.target.value) || 0)); windDirH.dispatchEvent(new Event('input', { bubbles: true })); dial?.setPointerValue('w1', parseFloat(e.target.value) || 0); updateReadout(); }
     if (e.target.name === 'windFrom2') { windDir2H.value = Math.round(fromToTo(parseFloat(e.target.value) || 0)); windDir2H.dispatchEvent(new Event('input', { bubbles: true })); dial?.setPointerValue('w2', parseFloat(e.target.value) || 0); updateReadout(); }
+    if (e.target.name === 'windSpeed2' || e.target.name === 'windSwitchDistance_m') updateReadout();
   });
   updateReadout();
 
@@ -2765,6 +2774,15 @@ route('/calc', async () => {
       tempC: d.tempC, pressureMbar: d.pressureMbar, humidity: d.humidity,
       windSpeed: d.windSpeed,
       windAngle_deg: solverWindAngle(parseFloat(d.windDir) || 0, d.azimuth_deg || 0),
+      // W2 — реальная смена ветра ПО ДИСТАНЦИИ (сегментированный расчёт, не
+      // альтернативный сценарий): активна только если пользователь явно
+      // задал скорость W2 (>0) — иначе solve() ведёт себя как один ветер на
+      // весь полёт, ничего не меняется по сравнению с прежним поведением.
+      ...((d.windSpeed2 || 0) > 0 ? {
+        wind2Speed: d.windSpeed2,
+        wind2Angle_deg: solverWindAngle(parseFloat(d.windDir2) || 0, d.azimuth_deg || 0),
+        windSwitchDistance_m: d.windSwitchDistance_m || 0,
+      } : {}),
       shotAngle_deg: d.shotAngle_deg,
       latitude_deg: d.latitude_deg, azimuth_deg: d.azimuth_deg,
       steps: distances
@@ -2857,13 +2875,12 @@ route('/calc', async () => {
     solCard.appendChild(detailStrip);
     out.appendChild(solCard);
 
-    // живой single-distance solve (быстрее чем full table)
-    function solveAt(dist, useW2 = false) {
+    // живой single-distance solve (быстрее чем full table). W1/W2 теперь —
+    // один физически честный расчёт с реальной сменой ветра по дистанции
+    // (см. windSwitchDistance_m в input) — отдельного «сценария W2» больше
+    // нет, input уже несёт оба ветра, если W2 задан.
+    function solveAt(dist) {
       const inp = { ...input, steps: [dist], targetDistance: Math.max(dist, input.zeroDistance || 100) };
-      if (useW2) {
-        inp.windSpeed = d.windSpeed2 || 0;
-        inp.windAngle_deg = solverWindAngle(parseFloat(d.windDir2) || 0, d.azimuth_deg || 0);
-      }
       const r2 = Ballistics.solve(inp);
       const row = r2.rows[0];
       if (row) row.mach = r2.speedOfSound ? row.vel_mps / r2.speedOfSound : null;
@@ -2884,10 +2901,8 @@ route('/calc', async () => {
       const row = solveAt(bigDist);
       if (!row) return;
       const w2Active = (d.windSpeed2 || 0) > 0;
-      const row2 = w2Active ? solveAt(bigDist, true) : null;
       distLabel.textContent = `ДИСТАНЦИЯ ${Units.distStr(bigDist)}`;
       mainGrid.innerHTML = '';
-      mainGrid.classList.toggle('has-w2', w2Active);
 
       const dropAxis = el('div', { class: 'axis' });
       dropAxis.appendChild(el('div', { class: 'lbl' }, 'Вертикаль'));
@@ -2899,27 +2914,25 @@ route('/calc', async () => {
       dropAxis.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row.drop_mil), Math.abs(row.drop_moa), Math.abs(row.drop_m))));
       mainGrid.appendChild(dropAxis);
 
+      // Горизонталь — ОДНО честное число: если W2 задан, физика (см.
+      // ballistics.js) уже сама сменила ветер на дистанции windSwitchDistance_m
+      // внутри ЭТОГО ЖЕ расчёта (реальная сегментация по трассе), поэтому
+      // отдельного «сценария W2» рядом больше нет — раньше это были ДВА
+      // независимых «а что если весь полёт дуло так»-расчёта, что путало.
       const driftAxis = el('div', { class: 'axis' });
-      driftAxis.appendChild(el('div', { class: 'lbl' }, w2Active ? 'Гор. W1' : 'Горизонталь'));
+      driftAxis.appendChild(el('div', { class: 'lbl' }, 'Горизонталь'));
       const drVal = el('div', { class: 'val' });
       drVal.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row.drift_mil, 'h')));
       drVal.appendChild(document.createTextNode(Units.corrVal(Math.abs(row.drift_mil), Math.abs(row.drift_moa))));
       drVal.appendChild(el('span', { class: 'unit' }, Units.corrUnit()));
       driftAxis.appendChild(drVal);
       driftAxis.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row.drift_mil), Math.abs(row.drift_moa), Math.abs(row.drift_m))));
-      mainGrid.appendChild(driftAxis);
-
-      if (w2Active && row2) {
-        const driftAxis2 = el('div', { class: 'axis axis-w2' });
-        driftAxis2.appendChild(el('div', { class: 'lbl' }, 'Гор. W2'));
-        const drVal2 = el('div', { class: 'val' });
-        drVal2.appendChild(el('span', { class: 'dir-arrow' }, dirArrow(row2.drift_mil, 'h')));
-        drVal2.appendChild(document.createTextNode(Units.corrVal(Math.abs(row2.drift_mil), Math.abs(row2.drift_moa))));
-        drVal2.appendChild(el('span', { class: 'unit' }, Units.corrUnit()));
-        driftAxis2.appendChild(drVal2);
-        driftAxis2.appendChild(el('div', { class: 'sub-val' }, Units.corrSecondary(Math.abs(row2.drift_mil), Math.abs(row2.drift_moa), Math.abs(row2.drift_m))));
-        mainGrid.appendChild(driftAxis2);
+      if (w2Active) {
+        const sw = Number(d.windSwitchDistance_m) || 0;
+        driftAxis.appendChild(el('div', { class: 'sub-val', style: 'opacity:.7' },
+          bigDist <= sw ? `W1 (переключение на ${Units.distStr(sw)})` : `W2 (после ${Units.distStr(sw)})`));
       }
+      mainGrid.appendChild(driftAxis);
 
       // — строка деталей (AB Quantum-style): TOF · энергия · скорость · Mach —
       detailStrip.innerHTML = '';
@@ -6733,8 +6746,9 @@ const FIELD_HELP = {
   zeroDistance: 'Дистанция, на которую пристрелян прицел (м).',
   windSpeed: 'Скорость ветра (м/с). Полевая оценка: листва шевелится ≈1–2 м/с, ветви качаются ≈4–6 м/с.',
   windAngle_deg: 'Угол ветра относительно линии стрельбы. 0° = попутный (в спину), 90° = справа, 180° = встречный, 270° = слева.',
-  windSpeed2: 'Второй ветер — для участков траектории, где ветер другой (ущелье, край леса). HUD покажет вторую колонку поправки.',
-  windAngle_deg2: 'Угол второго ветра (см. подсказку «Ветер 2»).',
+  windSpeed2: 'Второй ветер — для участка траектории ПОСЛЕ дистанции переключения (ущелье, край леса, дальняя часть трассы). Пуля физически летит при W1 до этой дистанции и при W2 после — настоящая смена ветра по трассе, а не отдельный «запасной» расчёт.',
+  windAngle_deg2: 'Угол второго ветра — действует после дистанции переключения (см. подсказку «Скорость W2»).',
+  windSwitchDistance_m: 'Дистанция, на которой ветер реально меняется с W1 на W2 (например граница леса/выход из ущелья). Учитывается, только если задана скорость W2 больше 0.',
   tempC: 'Температура воздуха (°C). Влияет на плотность воздуха и через неё на сопротивление.',
   pressureMbar: 'Атмосферное давление (мбар = гПа). Важно: НЕ привести к уровню моря — нужно ФАКТИЧЕСКОЕ давление на стрельбище.',
   humidity: 'Относительная влажность (%). Влияет слабо, но при высокой жаре заметно.',

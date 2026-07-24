@@ -215,6 +215,17 @@ function solve(input) {
   const wx = input.windSpeed * Math.cos(windRad);
   const wz = input.windSpeed * Math.sin(windRad);
 
+  // — сегментированный ветер (W2): реальная смена ветра по ДИСТАНЦИИ, не
+  // альтернативный сценарий «а что если всю дорогу дуло иначе». Активна,
+  // только если заданы ОБА поля (wind2Speed и windSwitchDistance_m) — иначе
+  // ведёт себя ровно как раньше (один ветер на весь полёт), обратная
+  // совместимость с любым существующим вызовом solve() без этих полей.
+  const hasWind2 = input.wind2Speed != null && input.windSwitchDistance_m != null;
+  const windRad2 = ((input.wind2Angle_deg || 0)) * Math.PI / 180;
+  const wx2 = hasWind2 ? input.wind2Speed * Math.cos(windRad2) : wx;
+  const wz2 = hasWind2 ? input.wind2Speed * Math.sin(windRad2) : wz;
+  const windSwitchDist = input.windSwitchDistance_m || 0;
+
   // — Кориолис: ω в системе стрелка-цель —
   // ω_x = Ω cos φ cos Az  (горизонт, в направлении цели)
   // ω_y = Ω sin φ          (вертикальная компонента)
@@ -228,8 +239,12 @@ function solve(input) {
 
   // — функция ускорения (drag + gravity + Coriolis) —
   function accel(state) {
-    const [, , , vx, vy, vz] = state;
-    const vrx = vx - wx, vry = vy, vrz = vz - wz;
+    const [x, , , vx, vy, vz] = state;
+    // до точки переключения — W1, после — W2 (реальная физика: пуля летит
+    // через РАЗНЫЕ участки трассы, каждый со своим ветром, а не «два мира»)
+    const curWx = hasWind2 && x >= windSwitchDist ? wx2 : wx;
+    const curWz = hasWind2 && x >= windSwitchDist ? wz2 : wz;
+    const vrx = vx - curWx, vry = vy, vrz = vz - curWz;
     const v = Math.hypot(vrx, vry, vrz);
     if (v < 1) return [0, gy, 0];
     const mach = v / cSound;
@@ -323,14 +338,22 @@ function solve(input) {
   const cant = (input.cant_deg || 0) * Math.PI / 180;
   const cosC = Math.cos(cant), sinC = Math.sin(cant);
 
+  // AJ считаем по формуле Литца (линейно растёт с дистанцией при постоянном
+  // боковом ветре) — при сегментированном ветре считаем ПОУЧАСТКОВО: свой
+  // угловой джамп на участке W1 (0..switchDist) и свой на участке W2
+  // (switchDist..range), а не единый угол на всю трассу.
+  const ajRad1 = aeroJumpLitz(wz, rightTwist);
+  const ajRad2 = hasWind2 ? aeroJumpLitz(wz2, rightTwist) : ajRad1;
+
   const rows = main.samples.map(s => {
     // base point-mass drop/drift
     const baseDrop = s.y;        // м, отрицательное = ниже линии прицела
     const baseDrift = s.z;       // м, положительное = вправо
     // Litz add-ons
     const sd_m = SgCorr ? spinDriftLitz(SgCorr, s.tof, rightTwist) : 0;
-    const ajRad = aeroJumpLitz(wz, rightTwist); // угол в радианах
-    const aj_m = ajRad * s.range; // линейное смещение по вертикали (положит. = вверх)
+    const aj_m = hasWind2
+      ? ajRad1 * Math.min(s.range, windSwitchDist) + ajRad2 * Math.max(0, s.range - windSwitchDist)
+      : ajRad1 * s.range; // линейное смещение по вертикали (положит. = вверх)
 
     const fullVert_m  = baseDrop + aj_m;             // вертикаль в мировой СК (без cant)
     const fullHoriz_m = baseDrift + sd_m;            // горизонталь в мировой СК
