@@ -585,6 +585,23 @@ label { text-align: center; }
   display: inline-block; font-weight: 800; letter-spacing: 1px;
   color: #e23b2e; font-size: 13px; margin-right: 2px;
 }
+/* Кнопки источников (📡/📱/🐦) под полем — раньше сидели квадратиками
+   ВПЛОТНУЮ к полю в .input-row, из-за чего поле сжималось и два похожих
+   поля (скорость W1 с кнопками / скорость W2 без) выглядели разной ширины.
+   Теперь поле всегда на всю ширину (как обычный numInput), а кнопки —
+   отдельной строкой ниже, невысокие и вытянутые по горизонтали. */
+.src-row { display: flex; gap: 6px; margin-top: 6px; }
+.src-row button {
+  flex: 1; padding: 7px 4px; min-width: 0;
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border: 1px solid var(--border); border-radius: 9px;
+  color: var(--accent); cursor: pointer; font-size: 14px; line-height: 1;
+  box-shadow: 0 1px 0 rgba(0,0,0,.12), 0 2px 4px rgba(0,0,0,.10);
+}
+.src-row button:active { box-shadow: 0 1px 1px rgba(0,0,0,.10) inset; transform: translateY(1px); }
+.src-row button[disabled] { opacity: 0.5; cursor: wait; }
+.src-row button.src-meteo { color: var(--accent); }
+.src-row button.src-kestrel { color: #ff8b3d; }
 
 /* ===== AB Quantum-style гигантская карточка результата ===== */
 .solution-card {

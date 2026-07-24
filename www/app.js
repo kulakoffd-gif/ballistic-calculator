@@ -815,19 +815,21 @@ function kestrelLast() {
 
 // Возвращает обычный numInput, но с рядом мини-кнопок источников справа.
 // sources: [{icon, title, action: async () => value, digits}]
+// Раньше кнопки источников (📡/📱/🐦) сидели ВПЛОТНУЮ к полю в одной строке
+// (.input-row) — само поле сжималось, кнопки были мелкие квадратики. Из-за
+// этого поле со скоростью W1 (кнопки источников) и поле со скоростью W2
+// (без кнопок) выглядели РАЗНОЙ ширины/формы — пользователь путался, какое
+// поле — какое. Теперь поле — на всю ширину, как обычный numInput, а кнопки
+// источников — отдельной строкой ПОД ним, чуть вытянутые (не квадратные).
 function numInputWithSources(name, label, val, sources, attrs = {}) {
-  // Отдельная рамка+фон вокруг подписи+поля+кнопок источников — иначе на
-  // экране с несколькими полями подряд неясно, какие именно кнопки (📡/📱/🐦)
-  // относятся к какому полю.
   const wrap = el('div', { class: 'field-group' });
   wrap.appendChild(el('label', { for: name }, label));
-  const row = el('div', { class: 'input-row' });
   const input = el('input', { id: name, name, type: 'text',
     inputmode: 'decimal', 'data-numeric': '1',
     value: val ?? '', ...attrs });
-  row.appendChild(input);
+  wrap.appendChild(input);
   if (sources && sources.length) {
-    const srcEl = el('div', { class: 'sources' });
+    const srcRow = el('div', { class: 'src-row' });
     for (const s of sources) {
       const btn = el('button', { type: 'button', title: s.title, class: s.cls || '', onclick: async () => {
         try {
@@ -844,11 +846,10 @@ function numInputWithSources(name, label, val, sources, attrs = {}) {
         } catch (e) { toast(s.title + ': ' + e.message); }
         finally { btn.disabled = false; }
       }}, s.icon);
-      srcEl.appendChild(btn);
+      srcRow.appendChild(btn);
     }
-    row.appendChild(srcEl);
+    wrap.appendChild(srcRow);
   }
-  wrap.appendChild(row);
   wrap.appendChild(el('div', { class: 'field-hint' }, 'дробь: точка или запятая'));
   return wrap;
 }
@@ -2543,10 +2544,16 @@ route('/calc', async () => {
   const dialCenterWrap = el('div', { style: 'display:flex;justify-content:center;margin-bottom:8px' });
   dialCenterWrap.appendChild(widgetWrap);
   secQuick.appendChild(dialCenterWrap);
+  // Оба блока скорости — абсолютно одинаковые (поле + те же кнопки
+  // источников снизу): раньше у W2 кнопок не было вообще, и два похожих
+  // поля выглядели по-разному, путая пользователя. Кнопки 📡/🐦 дают
+  // W2 то же самое текущее показание метеостанции/Kestrel как отправную
+  // точку — дальше это значение руками подправляют под «дальше по трассе».
   secQuick.appendChild(el('div', { class: 'row' },
     numInputWithSources('windSpeed', 'Скорость W1, м/с (у стрелка)', state.windSpeed ?? 0,
       [srcOpenMeteo('windSpeed', 1), srcKestrel('windSpeed', 1)], { step: '0.1' }),
-    numInput('windSpeed2', 'Скорость W2, м/с (дальше по трассе)', state.windSpeed2 ?? 0, { step: '0.1' })
+    numInputWithSources('windSpeed2', 'Скорость W2, м/с (дальше по трассе)', state.windSpeed2 ?? 0,
+      [srcOpenMeteo('windSpeed2', 1), srcKestrel('windSpeed2', 1)], { step: '0.1' })
   ));
   secQuick.appendChild(el('div', { class: 'row' },
     numInput('windFrom1', 'Направление W1, ° (откуда)', Math.round(toFrom(parseFloat(windDirH.value) || 0)), { step: '1' }),
