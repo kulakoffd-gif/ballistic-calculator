@@ -371,15 +371,23 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
     svg.appendChild(subNum);
   }
 
-  function setPointerAngle(i, a) {
+  // silent=true — программная синхронизация ИЗВНЕ (значение уже есть у
+  // вызывающего кода, дублировать onChange не нужно). Без этого флага
+  // setPointerValue() (см. ниже) образовывала бесконечную синхронную
+  // рекурсию: onChange дёргал внешнее поле → его 'input' слушатель на
+  // form звал dial.setPointerValue(...) → setPointerAngle → onChange
+  // снова → и по кругу на КАЖДОЕ mousemove/touchmove — это и было
+  // «моргание/дёрганье экрана» при перетаскивании значка азимута
+  // (RangeError: Maximum call stack size exceeded на каждый тик драга).
+  function setPointerAngle(i, a, silent = false) {
     const p = pts[i];
     p.value = ((a % 360) + 360) % 360;
     pointerGroups[i].setAttribute('transform', `rotate(${p.value})`);
     updateLabelPos(i);
     if (legacy && i === 0) centerNum.textContent = Math.round(p.value) + '°';
-    if (p.onChange) p.onChange(p.value);
+    if (p.onChange && !silent) p.onChange(p.value);
   }
-  pts.forEach((_, i) => setPointerAngle(i, pts[i].value));
+  pts.forEach((_, i) => setPointerAngle(i, pts[i].value, true));
 
   function angleAt(e) {
     const rect = svg.getBoundingClientRect();
@@ -438,9 +446,9 @@ function createCompass({ value = 0, fireDir = null, onChange, size = 280, subLab
 
   return {
     svg,
-    setAngle: (a) => setPointerAngle(0, a),
+    setAngle: (a) => setPointerAngle(0, a, true),
     get value() { return pts[0].value; },
-    setPointerValue(id, a) { const i = pts.findIndex(p => p.id === id); if (i >= 0) setPointerAngle(i, a); },
+    setPointerValue(id, a) { const i = pts.findIndex(p => p.id === id); if (i >= 0) setPointerAngle(i, a, true); },
     getPointerValue(id) { const p = pts.find(p => p.id === id); return p ? p.value : null; },
   };
 }
@@ -690,7 +698,16 @@ function bearingDeg(lat1, lon1, lat2, lon2) {
 function geoErrMsg(e) {
   if (!e) return 'неизвестная ошибка';
   switch (e.code) {
-    case 1: return 'доступ к геолокации запрещён. Разреши его для сайта (значок 🔒/ⓘ в адресной строке → «Местоположение»)';
+    // error.code===1 (PERMISSION_DENIED) отдаёт браузер И когда сайту явно
+    // запретили геолокацию, И когда её запретили самому браузеру/приложению
+    // на уровне ОС (macOS: Системные настройки → Конфиденциальность →
+    // Геолокация; iOS: Настройки → Конфиденциальность → Геолокация → Safari
+    // «При использовании») — JS не может отличить эти два случая, а
+    // разрешение по «замочку» сайта тут не поможет, если заблокирован сам
+    // браузер целиком. Раньше подсказка вела только к замочку — пользователь
+    // включал разрешение сайта, ошибка не пропадала, и было непонятно, что
+    // именно ещё проверить.
+    case 1: return 'доступ к геолокации запрещён. Проверь ДВА места: 1) значок 🔒/ⓘ в адресной строке → «Местоположение» → «Разрешить»; 2) системные настройки устройства — геолокация должна быть разрешена самому браузеру (macOS: Системные настройки → Конфиденциальность и безопасность → Геолокация; iOS: Настройки → Конфиденциальность → Геолокация → Safari «При использовании приложения»). Без п.2 браузер вернёт «запрещено», даже если сайту разрешено';
     case 2: return 'местоположение недоступно — включи геолокацию (службы геопозиции) на устройстве';
     case 3: return 'GPS не успел определить позицию — попробуй на открытом месте';
     default: return e.message || 'ошибка GPS';
