@@ -3913,7 +3913,14 @@ route('/cartridge/:id', async ({ id }) => {
 
   // — Multi-point Truing (BC banding) —
   f.appendChild(el('hr'));
-  f.appendChild(el('h2', {}, 'Калибровка BC по DOPE (Litz banding)'));
+  const truingHRow = el('div', { style: 'display:flex;align-items:center;gap:8px' });
+  truingHRow.appendChild(el('h2', { style: 'margin:0;flex:1' }, 'Калибровка BC по DOPE (Litz banding)'));
+  truingHRow.appendChild(el('button', {
+    type: 'button',
+    style: 'width:36px;height:36px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:18px;font-weight:600;cursor:pointer',
+    onclick: () => openBCCalibrationHelpSheet()
+  }, 'i'));
+  f.appendChild(truingHRow);
   f.appendChild(el('div', { class: 'banner' },
     'Добавляй точки на разных дистанциях — solver интерполирует BC по Mach. Литц рекомендует ≥3 точки от ближней (полный сверхзвук) до дальней (трансзвук). ' +
     'Если сверхзвук уже бьёт точно (там калибруй V₀, не BC) — точки калибровки по AB официально лучше всего ставить около Mach 1.2 и Mach 0.9 (переход через звуковой барьер), это даёт максимально надёжную поправку именно в переходной/дозвуковой зоне.'));
@@ -4285,6 +4292,35 @@ function buildSolverInputFor(weapon, cart, distances, weather, opts = {}) {
     steps: distances,
     ...opts
   };
+}
+
+// ============== справка по калибровке BC по Mach (DOPE / Litz banding) ==============
+function openBCCalibrationHelpSheet() {
+  openSheet((sheet, close) => {
+    sheet.appendChild(el('h3', {}, 'Калибровка BC по Mach'));
+    sheet.appendChild(el('div', { class: 'sub' }, 'Аналог CDF/DSF-калибровки в Applied Ballistics — по реальным выстрелам, не по формуле'));
+
+    const body = el('div', { style: 'max-height:60vh;overflow-y:auto;padding-right:6px;line-height:1.5;font-size:14px' });
+    body.innerHTML = `
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Зачем это нужно</h4>
+      <p>Стандартная G1/G7-таблица с одним фиксированным BC — известное слабое место любого простого баллистического калькулятора именно в <b>трансзвуковой зоне</b> (когда скорость пули приближается к скорости звука и падает ниже неё). Реальная пуля в этой зоне замедляется не так, как предсказывает усреднённая кривая. AB Quantum использует доплеровские данные конкретно под пулю — у нас такой библиотеки нет, но результат можно получить самому: по факту реальных выстрелов на известных дистанциях.</p>
+
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Как это работает</h4>
+      <p>Ты стреляешь на известной дистанции, записываешь РЕАЛЬНУЮ поправку в mil, которая попала точно в ноль. Солвер вычисляет, на каком Mach летела пуля в момент падения на эту дистанцию, и подбирает множитель BC именно для этого участка Mach — без пересчёта формул руками, «Добавить точку калибровки» делает это автоматически.</p>
+
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Сколько точек и на каких дистанциях</h4>
+      <p>Литц рекомендует ≥3 точки от ближней (полный сверхзвук) до дальней (трансзвук). Официально по AB лучше всего калибровать около <b>Mach 1.2 и Mach 0.9</b> — переход через звуковой барьер, там расхождение максимально. Прямо в этом экране под баннером выше показана подсказка, на какую именно дистанцию В МЕТРАХ это выпадает для ТВОЕЙ пули (V₀/BC уже подставлены) — не нужно считать самому.</p>
+
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Важно: если ближние дистанции уже точные</h4>
+      <p>Если расхождение проявилось только с одной дальней дистанции, а всё, что ближе, и так бьёт в ноль — <b>одной дальней точки мало</b>. Одна точка калибрует ВСЮ траекторию целиком, включая уже верные близкие дистанции, и может их испортить. Добавь ЕЩЁ одну точку на ближней дистанции — введи туда то значение, которое калькулятор УЖЕ показывает там (это скажет солверу «здесь ничего трогать не надо»). Тогда поправка плавно нарастёт только между двумя точками, а всё ближе первой точки останется как было.</p>
+
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Погода при отстреле</h4>
+      <p>Лучше — безветренная погода (боковой ветер путает вертикальную поправку со сносом). Введи температуру и давление на момент выстрела в саму форму калибровки — от них тоже зависит, на каком Mach летела пуля.</p>
+    `;
+    sheet.appendChild(body);
+
+    sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Понятно'));
+  });
 }
 
 function openTruingSheet(cart) {
