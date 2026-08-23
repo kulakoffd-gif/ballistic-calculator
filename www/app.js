@@ -3910,6 +3910,41 @@ route('/cartridge/:id', async ({ id }) => {
     'Если сверхзвук уже бьёт точно (там калибруй V₀, не BC) — точки калибровки по AB официально лучше всего ставить около Mach 1.2 и Mach 0.9 (переход через звуковой барьер), это даёт максимально надёжную поправку именно в переходной/дозвуковой зоне.'));
   f.appendChild(el('div', { class: 'banner accent' },
     '⚠️ Если ближние дистанции уже бьют точно и трогать их не нужно (расхождение началось только с какой-то одной дистанции) — ОДНОЙ точки на дальней дистанции мало: с одной точкой её поправка применится сразу КО ВСЕЙ траектории, включая уже верные близкие дистанции. Добавь ЕЩЁ одну точку на ближней дистанции, где всё и так точно — введи туда то значение, которое калькулятор УЖЕ показывает на этой дистанции (это скажет солверу «здесь поправка не нужна»). Тогда между двумя точками поправка плавно нарастёт, ближе — останется как было, дальше введённой дальней точки — экстраполируется с новым BC.'));
+  // «Mach 1.2 и Mach 0.9» из банера выше — абстрактные числа, пользователю
+  // нужно САМОМУ прикидывать, на какую дистанцию с ЕГО V₀/BC это выпадает.
+  // Прогоняем один быстрый скан траектории (шаг 25м) и переводим Mach в
+  // конкретные метры прямо для этого патрона — то самое «на какую дистанцию
+  // тебе надо» из просьбы пользователя.
+  if (c.bc && c.v0) {
+    try {
+      const scanSteps = [];
+      for (let d = 100; d <= 2000; d += 25) scanSteps.push(d);
+      const scan = Ballistics.solve({
+        bc: c.bc, dragModel: c.dragModel === 'CUSTOM' ? 'CUSTOM' : (c.dragModel || 'G1'),
+        customDrag: c.customDrag || null,
+        v0: c.v0, sightHeight: 0.05, zeroDistance: 100,
+        tempC: 15, pressureMbar: 1013, humidity: 50,
+        shotAngle_deg: 0, latitude_deg: 45, azimuth_deg: 0,
+        windSpeed: 0, windAngle_deg: 0, steps: scanSteps, targetDistance: 2000
+      });
+      const machRows = scan.rows.map(r => ({ range: r.range, mach: r.vel_mps / scan.speedOfSound }));
+      function findMachDist(targetMach) {
+        for (let i = 1; i < machRows.length; i++) {
+          if (machRows[i - 1].mach >= targetMach && machRows[i].mach <= targetMach) {
+            const a = machRows[i - 1], b = machRows[i];
+            const frac = (a.mach - targetMach) / (a.mach - b.mach);
+            return a.range + frac * (b.range - a.range);
+          }
+        }
+        return null;
+      }
+      const d12 = findMachDist(1.2), d09 = findMachDist(0.9);
+      if (d12 || d09) {
+        f.appendChild(el('div', { class: 'banner' },
+          `📏 Для этой пули (V₀=${fmt(c.v0,0)}, BC=${fmt(c.bc,3)}) ориентировочно: Mach 1.2 ≈ ${d12 ? Math.round(d12) + ' м' : '—'}, Mach 0.9 ≈ ${d09 ? Math.round(d09) + ' м' : '—'} — с этих дистанций и снимай контрольные выстрелы под две точки калибровки. Прикидка по стандартной атмосфере (15°C/1013гПа) — в реальную погоду сдвинется на десятки метров, ориентируйся по факту.`));
+      }
+    } catch { /* нет BC/V0 или солвер не смог — просто не показываем подсказку */ }
+  }
   const pts = (c.truingPoints || []).slice().sort((a, b) => b.machAt - a.machAt);
   if (pts.length) {
     const tbl = el('table', { class: 'table' });
