@@ -2456,8 +2456,17 @@ route('/calc', async () => {
   // не тронут). Поля скорости/направления — через numInput(), чтобы подписи
   // были рядом со своим полем и в общем «блоке» (то, что пользователь
   // отдельно указал как «брошено» здесь, хотя сделано везде в приложении).
-  const secQuick = el('div', { class: 'form-pinned' });
-  secQuick.appendChild(el('div', { class: 'pinned-title' }, '⚡ Ветер W1/W2 + азимут цели — один циферблат'));
+  // Раньше этот блок (циферблат + все поля ветра) был ЗАКРЕПЛЁН прямо над
+  // вкладками Meteo/Прочее, всегда на виду — пользователь наглядно показал
+  // на скринах AB Quantum, что там результат (Solution) — короткий, без
+  // ввода вообще, а ветер/атмосфера убраны на СВОИ вкладки под тем же
+  // тап-баром (свайп между ними, без вертикального скролла мимо гигантского
+  // циферблата). Переносим сюда же — секция становится ОБЫЧНОЙ вкладкой
+  // ('wind', первая по счёту), а не вечно видимой плашкой над табами.
+  const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
+  const ctrlSwipeArea = el('div', { class: 'calc-ctrl-swipe' });
+
+  const secQuick = makeSection('wind');
 
   // Скрытые поля-источники правды для солвера: направление «куда дует» (TO,
   // абсолютное) для W1/W2 — солверу это удобнее, а на циферблате/в полях
@@ -2614,18 +2623,17 @@ route('/calc', async () => {
   // редактируется с этого экрана — редактирование только в /cartridge/:id.
   secQuick.appendChild(el('input', { type: 'hidden', name: 'v0', 'data-numeric': '1', value: state.v0 ?? 830 }));
   secQuick.appendChild(attachAtmoButtons(form, 'pressureMbar'));
-  form.appendChild(secQuick);
-  // Циферблат строим ТОЛЬКО теперь, когда numInput('azimuth_deg') уже в
-  // живом дереве формы — buildDial()/createCompass() на конструкторе сразу
-  // читает azNow() (через form.azimuth_deg) для начального положения значка
-  // 🎯; вызови раньше — прочитал бы 0 вместо реально сохранённого азимута.
-  buildDial();
-
-  const ctrlTabs = el('div', { class: 'calc-ctrl-tabs' });
+  // Секция «wind» уходит в общий свайп-контейнер вкладок (не сразу в form) —
+  // сама область вкладок добавляется в form ниже, вместе с остальными.
+  ctrlSwipeArea.appendChild(secQuick);
   form.appendChild(ctrlTabs);
-  // контейнер-секций контроллеров: доступ по тапу ИЛИ свайпом влево/вправо (как в AB)
-  const ctrlSwipeArea = el('div', { class: 'calc-ctrl-swipe' });
   form.appendChild(ctrlSwipeArea);
+  // Циферблат строим ТОЛЬКО теперь, когда numInput('azimuth_deg') уже в
+  // живом дереве формы (secQuick уже внутри ctrlSwipeArea/form) —
+  // buildDial()/createCompass() на конструкторе сразу читает azNow() (через
+  // form.azimuth_deg) для начального положения значка 🎯; вызови раньше —
+  // прочитал бы 0 вместо реально сохранённого азимута.
+  buildDial();
 
   // азимут поменялся (ручной ввод) → синхронизировать значок на циферблате
   form.addEventListener('input', e => {
@@ -2700,10 +2708,11 @@ route('/calc', async () => {
 
   // === Заполнение tab-bar ===
   const tabs = [
+    { id: 'wind',   label: '🌬 Ветер' },
     { id: 'atmo',   label: '🌡 Meteo' },
     { id: 'misc',   label: '⚙ Прочее' }
   ];
-  let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'atmo';
+  let activeCtrlTab = tabs.some(t => t.id === state.activeCtrlTab) ? state.activeCtrlTab : 'wind';
   function showCtrlTab(id) {
     activeCtrlTab = id;
     state.activeCtrlTab = id;
