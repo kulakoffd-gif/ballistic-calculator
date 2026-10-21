@@ -5035,7 +5035,7 @@ function openRotorHelpSheet() {
       <p>«Ёлочка» (Christmas tree) — часть сетки под горизонтальной линией: ряды точек или засечек, расходящиеся вниз и вбок. «Метка» — точка или засечка на вертикальной линии ёлочки на нужное число mil ниже центра. Если ёлочки нет, возьми ближайшую засечку на вертикальной шкале ниже центра. Для сдвига по горизонтали бери засечки на горизонтальной линии сетки справа или слева от центра.</p>
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Шаги</h4>
-      <p><b>1.</b> Введи число лопастей, длину лопасти до начала гонга, диаметр гонга, дистанцию, период оборота (кнопка «нажатием на белый»), направление вращения и свою реакцию.</p>
+      <p><b>1.</b> Введи число лопастей, длину лопасти до начала гонга, диаметр гонга, дистанцию, период оборота (кнопка «нажатием на лопасть»: жми на каждую лопасть, цвет не важен), направление вращения и свою реакцию.</p>
       <p><b>2.</b> Выбери сигнал и введи TOF, поправку на дистанцию и ветер (авто или из AB Quantum).</p>
       <p><b>3.</b> Накрути барабаны на «Накрутка ВЕРТИКАЛЬ» и «Накрутка ГОРИЗОНТАЛЬ» из расчёта. Это итог: обычная поправка и ветер уже учтены.</p>
       <p><b>4.</b> Наведи точку A на сетку так, как написано в «Точка A на сетке от центра».</p>
@@ -5545,37 +5545,59 @@ route('/moving-target', async () => {
         el('div', { class: 'chip' + (isCount ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
           onclick: () => { state.rpmMode = 'count'; save(); } }, 'замер по лопастям'),
         el('div', { class: 'chip' + (isTap ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
-          onclick: () => { state.rpmMode = 'tap'; taps = []; save(); } }, 'нажатием на белый')
+          onclick: () => { state.rpmMode = 'tap'; taps = []; save(); } }, 'нажатием на лопасть')
       )
     ));
     if (isTap) {
-      // Замер периода по белым гонгам: жмёшь каждый раз, когда белый гонг
-      // проходит опорную точку. Сумма W промежутков подряд (W — число белых)
-      // даёт ровно один оборот, поэтому схема расположения белых для замера
-      // не важна. Чем больше полных оборотов, тем точнее среднее.
-      const W = state.whiteMask.filter(Boolean).length;
-      const info = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' });
+      // Замер периода: жми КАЖДЫЙ раз, когда любая лопасть (цвет не важен) проходит опорную точку
+      // («3 часа»). Период = наклон прямой «время нажатия — номер прохода» по ВСЕМ нажатиям,
+      // умноженный на число лопастей. Чем больше оборотов, тем точнее: ошибка каждого нажатия
+      // усредняется, а у замера по двум нажатиям (старт/стоп) не усредняется.
+      const N = Math.max(1, Math.round(state.blades) || 1);
+      const info = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px;line-height:1.5' });
+      const stats = () => {
+        const n = taps.length;
+        if (n < 2) return null;
+        const t = taps.map(x => x / 1000);
+        const mi = (n - 1) / 2, mt = t.reduce((u, v) => u + v, 0) / n;
+        let sxx = 0, sxy = 0;
+        for (let i = 0; i < n; i++) { sxx += (i - mi) * (i - mi); sxy += (i - mi) * (t[i] - mt); }
+        const slope = sxy / sxx;                       // секунд на одну лопасть
+        let ss = 0;
+        for (let i = 0; i < n; i++) { const r = t[i] - (mt + slope * (i - mi)); ss += r * r; }
+        const sd = n > 2 ? Math.sqrt(ss / (n - 2)) : 0;           // разброс нажатий, с
+        const T = slope * N;
+        const se = n > 2 ? (sd / Math.sqrt(sxx)) * N : 0;         // погрешность периода, с
+        const iv = [];
+        for (let i = 1; i < n; i++) iv.push(t[i] - t[i - 1]);
+        const med = iv.slice().sort((u, v) => u - v)[Math.floor(iv.length / 2)];
+        const bad = iv.some(x => x > 1.6 * med || x < 0.5 * med);  // пропущенное или лишнее нажатие
+        return { n, T, sd, se, bad, rev: (n - 1) / N };
+      };
       const updateInfo = () => {
-        if (!W) { info.textContent = 'Отметь хотя бы один белый гонг на схеме.'; return; }
-        const k = Math.floor((taps.length - 1) / W);
-        let txt = `Нажатий: ${taps.length}. Для одного оборота нужно ${W + 1} (белых на схеме: ${W}).`;
-        if (taps.length >= 2) txt += ` Последний промежуток: ${fmt((taps[taps.length - 1] - taps[taps.length - 2]) / 1000, 2)} с.`;
-        if (k >= 1) txt += ` Полных оборотов: ${k}.`;
+        const st = stats();
+        let txt = `Нажатий: ${taps.length}. Жми на КАЖДУЮ лопасть (любого цвета), когда она проходит «3 часа»; 9–13 раз подряд (2–3 оборота).`;
+        if (st) {
+          txt += ` Оборотов: ${fmt(st.rev, 1)}.`;
+          if (st.T > 0) txt += ` Период пока ${fmt(st.T, 2)} с` + (st.n > 2 ? ` ±${fmt(st.se, 2)} с (разброс нажатий ±${fmt(st.sd, 2)} с)` : '') + '.';
+          if (st.bad) txt += ' ВНИМАНИЕ: похоже, нажатие пропущено или лишнее. Нажми «Сброс» и начни заново.';
+        }
         info.textContent = txt;
       };
       wrap.appendChild(el('button', {
         type: 'button', class: 'btn', style: 'margin-top:8px;width:100%;padding:18px 10px;font-size:16px',
         onclick: () => { taps.push(performance.now()); updateInfo(); }
-      }, 'ТАП: белый гонг прошёл опорную точку'));
+      }, 'ТАП: лопасть прошла «3 часа»'));
       wrap.appendChild(info);
       updateInfo();
       wrap.appendChild(el('div', { class: 'row', style: 'margin-top:8px' },
         el('button', {
           type: 'button', class: 'btn', onclick: () => {
-            if (!W || taps.length < W + 1) { info.textContent = `Мало нажатий: нужно минимум ${W + 1}.`; return; }
-            const k = Math.floor((taps.length - 1) / W);
-            const T = (taps[k * W] - taps[0]) / 1000 / k;
-            if (!(T > 0)) return;
+            const st = stats();
+            if (!st || st.n < N + 1) { info.textContent = `Мало нажатий: нужен хотя бы один полный оборот (${N + 1} нажатий), лучше 2–3 оборота.`; return; }
+            if (st.bad) { updateInfo(); return; }
+            if (!(st.T > 0)) return;
+            const T = Math.round(st.T * 100) / 100;      // округляем до сотых секунды
             state.rpm = 60 / T;
             state.rpmMode = 'manual';
             taps = [];

@@ -1,7 +1,7 @@
 // Service worker — офлайн-кэш оболочки приложения (только web/PWA-режим).
 // В нативном Capacitor не регистрируется (см. index.html).
 // При изменении файлов поднимай CACHE-версию, чтобы клиенты получили свежак.
-const CACHE = 'balisticnote-v6';
+const CACHE = 'balisticnote-v7';
 const SHELL = [
   './',
   './index.html',
