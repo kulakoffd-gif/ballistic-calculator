@@ -5028,7 +5028,7 @@ function openRotorHelpSheet() {
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Какую линию сетки брать (поле «Сигнал выстрела»)</h4>
       <p><b>Горизонтальная линия.</b> Центр стоит на «dy» выше A, накрутка по вертикали уменьшается на «dy» (может уйти ниже нуля — нужен запас барабана вниз). Точку A держишь ниже центра на «dy» (на ёлочке). Сигнал: центр гонга пересёк горизонтальную линию, сбоку на «dx» от вертикали.</p>
-      <p><b>Вертикальная линия.</b> Центр стоит на «dx» в сторону гонга от A, накрутка по горизонтали «dx» в сторону A (плюс ветер), вертикаль накручена как обычно. Точку A держишь на горизонтальной шкале сетки на «dx» с другой стороны от центра. Сигнал: центр гонга пересёк вертикальную линию. Не требует запаса барабана вниз и работает при больших углах опережения.</p>
+      <p><b>Вертикальная линия.</b> Центр стоит на «dx» в сторону гонга от A, накрутка по горизонтали «dx» в сторону A, вертикаль накручена как обычно. Точку A держишь на горизонтальной шкале сетки на «dx» с другой стороны от центра. Сигнал: центр гонга пересёк вертикальную линию. Не требует запаса барабана вниз и работает при больших углах опережения.</p>
       <p><b>Центр перекрестия.</b> Оба смещения сразу: гонг в момент выстрела проходит через сам центр перекрестия.</p>
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Что такое «ёлочка» и «метка»</h4>
@@ -5036,8 +5036,8 @@ function openRotorHelpSheet() {
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Шаги</h4>
       <p><b>1.</b> Введи число лопастей, длину лопасти до начала гонга, диаметр гонга, дистанцию, период оборота (кнопка «нажатием на лопасть»: жми на каждую лопасть, цвет не важен), направление вращения и свою реакцию.</p>
-      <p><b>2.</b> Выбери сигнал и введи TOF, поправку на дистанцию и ветер (авто или из AB Quantum).</p>
-      <p><b>3.</b> Накрути барабаны на «Накрутка ВЕРТИКАЛЬ» и «Накрутка ГОРИЗОНТАЛЬ» из расчёта. Это итог: обычная поправка и ветер уже учтены.</p>
+      <p><b>2.</b> Выбери сигнал и введи TOF и поправку на дистанцию (авто или из AB Quantum). Ветер приложение не считает.</p>
+      <p><b>3.</b> Накрути барабаны на «Накрутка ВЕРТИКАЛЬ» и «Накрутка ГОРИЗОНТАЛЬ» из расчёта. Это итог для ротора: обычная поправка на дистанцию уже учтена. Ветер учти сам: добавь поправку из Кестрела вправо или влево к накрутке по горизонтали.</p>
       <p><b>4.</b> Наведи точку A на сетку так, как написано в «Точка A на сетке от центра».</p>
       <p><b>Схемы под расчётом.</b> Приложение рисует две картинки по твоим данным: ротор (где гонг в момент выстрела, где точка A, за сколько секунд гонг дойдёт до A) и сетку прицела (куда поставить A, где гонг пересечёт сетку, «ЖМИ СПУСК»). Карточки «КРУТИ / ЦЕЛЬСЯ / ЖМИ» над ними содержат ту же информацию крупным текстом. Сетка на картинке — ZCO MPCT2, нарисована по присланному изображению (засечки через 0,2 mil, «ёлочка» с 2 mil вниз, чёрные штанги от 8 mil). Если у тебя другая сетка, её надо добавить отдельно.</p>
       <p><b>5.</b> Жди белый гонг. Жми спуск, когда центр гонга пересечёт выбранную линию. Место пересечения написано в «Гонг пересечёт сетку». Это проверка, что всё сошлось.</p>
@@ -5375,15 +5375,9 @@ route('/moving-target', async () => {
   let taps = []; // отметки времени (мс) нажатий «белый гонг прошёл» для замера периода
   // TOF и поправки: «авто» — из солвера по оружию и патрону, «вручную» — числа из другой
   // программы (например, AB Quantum). Вертикаль: положительное = накрутить вверх (U);
-  // ветер вручную: число + сторона R/L (куда накручивать).
+  // ветер в роторе не считаем: стрелок добавляет его сам (Кестрел)
   state.tofMode = state.tofMode || 'auto';          state.tofManual = state.tofManual ?? null;
   state.dropMode = state.dropMode || 'auto';        state.dropManual_mil = state.dropManual_mil ?? null;
-  state.windMode = state.windMode || 'auto';        state.windManual_mil = state.windManual_mil ?? null;
-  state.windManualDir = state.windManualDir || 'R';
-  state.windSpeed = state.windSpeed ?? 0;           // м/с, для авто-расчёта
-  state.windClock = state.windClock ?? 3;           // откуда дует, по часам от стрелка: 12 — в лицо, 3 — справа, 6 — в спину, 9 — слева
-  // часы → угол ветра для солвера (0 — попутный, 90 — справа, 180 — встречный)
-  function windAngleFromClock(h) { return (((180 - 30 * Number(h)) % 360) + 360) % 360; }
   state.rotationDir = state.rotationDir || 'cw';   // cw | ccw — куда крутится (вид от стрелка)
   state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
   state.radiusUnit    = state.radiusUnit    || 'm'; // m | mil — как вводить радиус лопастей
@@ -5400,7 +5394,7 @@ route('/moving-target', async () => {
     const w = weapons.find(x => x.id === state.weaponId);
     const c = cartridges.find(x => x.id === state.cartridgeId);
     if (!w || !c) return null;
-    const wx = { ...state.weather, windSpeed: state.windSpeed || 0, windAngle_deg: windAngleFromClock(state.windClock) };
+    const wx = { ...state.weather, windSpeed: 0 };   // ветер приложение в роторе не считает
     const input = buildSolverInputFor(w, c, [state.distance_m], wx);
     const r = Ballistics.solve(input);
     const row = r.rows[0];
@@ -5707,7 +5701,7 @@ route('/moving-target', async () => {
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
     ));
-    // Данные баллистики: TOF, поправка на дистанцию и ветер — авто (солвер по
+    // Данные баллистики: TOF и поправка на дистанцию — авто (солвер по
     // оружию и патрону) или вручную (например, из AB Quantum)
     const row0 = computeRow();
     function autoManual(title, modeKey, manualEl, autoEls, autoText) {
@@ -5732,23 +5726,11 @@ route('/moving-target', async () => {
     const manualInput = (name, val) => el('input', { name, type: 'text', inputmode: 'decimal', 'data-numeric': '1', value: val ?? '' });
     modeCard.appendChild(el('h2', { style: 'margin-top:14px' }, 'Данные баллистики'));
     modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
-      'Авто — считает приложение по оружию и патрону (выбери их выше). Вручную — вставь числа из AB Quantum или другой программы.'));
+      'Авто — считает приложение по оружию и патрону (выбери их выше). Вручную — вставь числа из AB Quantum или другой программы. Ветер приложение здесь не считает: добавь его сам из Кестрела к накрутке по горизонтали.'));
     modeCard.appendChild(autoManual('Время полёта пули (TOF), с', 'tofMode', manualInput('tofManual', state.tofManual), [],
       row0 ? `авто: ${fmt(row0.tof_s, 3)} с` : 'авто: выбери оружие и патрон выше'));
     modeCard.appendChild(autoManual('Поправка на дистанцию, mil (вверх U — положительное число)', 'dropMode', manualInput('dropManual_mil', state.dropManual_mil), [],
       row0 ? `авто: ${fmt(Math.abs(row0.drop_mil), 2)} mil ${row0.drop_mil < 0 ? 'D' : 'U'}` : 'авто: выбери оружие и патрон выше'));
-    const windManualEl = el('div', { class: 'row' },
-      el('div', {}, el('label', { style: 'font-size:11px' }, 'Поправка на ветер, mil'), manualInput('windManual_mil', state.windManual_mil)),
-      selectInput('windManualDir', 'Накрутить', state.windManualDir, [{ value: 'R', label: 'R (вправо)' }, { value: 'L', label: 'L (влево)' }])
-    );
-    const clockOpts = [];
-    for (let h = 1; h <= 12; h++) clockOpts.push({ value: h, label: `${h} ч` + ({ 12: ' (в лицо)', 3: ' (справа)', 6: ' (в спину)', 9: ' (слева)' }[h] || '') });
-    const windAutoEls = [el('div', { class: 'row' },
-      numInput('windSpeed', 'Ветер, м/с', state.windSpeed),
-      selectInput('windClock', 'Откуда дует (часы от стрелка)', state.windClock, clockOpts)
-    )];
-    modeCard.appendChild(autoManual('Ветер', 'windMode', windManualEl, windAutoEls,
-      row0 ? `авто: ${fmt(Math.abs(row0.drift_mil), 2)} mil ${row0.drift_mil < 0 ? 'L' : 'R'} (накрутить по горизонтали)` : 'авто: выбери оружие и патрон выше'));
     // Какую линию сетки использовать как сигнал «стреляй»
     state.rotorTrigger = state.rotorTrigger || 'h';
     modeCard.appendChild(el('h2', { style: 'margin-top:14px' }, 'Сигнал выстрела'));
@@ -5796,10 +5778,6 @@ route('/moving-target', async () => {
         rotationDir: d.rotationDir, reactionSec: d.reactionSec,
         tofManual: d.tofManual !== undefined ? d.tofManual : state.tofManual,
         dropManual_mil: d.dropManual_mil !== undefined ? d.dropManual_mil : state.dropManual_mil,
-        windManual_mil: d.windManual_mil !== undefined ? d.windManual_mil : state.windManual_mil,
-        windManualDir: d.windManualDir || state.windManualDir,
-        windSpeed: d.windSpeed != null ? d.windSpeed : state.windSpeed,
-        windClock: d.windClock ? Number(d.windClock) : state.windClock,
         measureSec, measuredPasses
       });
       normMask();
@@ -5925,9 +5903,6 @@ route('/moving-target', async () => {
     // TOF и поправки: авто (солвер по оружию и патрону) или вручную (например, из AB Quantum)
     const tof = state.tofMode === 'manual' ? state.tofManual : (row ? row.tof_s : null);
     const dropMil = state.dropMode === 'manual' ? state.dropManual_mil : (row ? row.drop_mil : null);
-    const windMil = state.windMode === 'manual'
-      ? (state.windManual_mil == null ? null : state.windManual_mil * (state.windManualDir === 'L' ? -1 : 1))
-      : (row ? row.drift_mil : null);
     const hasTof = tof != null && isFinite(tof) && tof > 0;
     const tLead = hasTof ? tof + (state.reactionSec || 0) : null;
 
@@ -5961,9 +5936,8 @@ route('/moving-target', async () => {
     const crossX = dx_mil - cx, crossY = dy_mil - cy; // где центр гонга пересечёт сетку в момент выстрела, от центра
 
     const hasDrop = dropMil != null && isFinite(dropMil);
-    const hasWind = windMil != null && isFinite(windMil);
     const totalV = hasDrop ? dropMil - cy : null;       // итог по вертикали: вверх +
-    const totalH = (hasWind ? windMil : 0) - cx;        // итог по горизонтали: вправо +
+    const totalH = -cx;                                  // накрутка по горизонтали только на ротор (вправо +), ветер добавляет стрелок
     const clicksV = hasDrop ? totalV / 0.1 : null;      // клики (0.1 mil/клик)
     const dirV = v => (v < 0 ? 'D' : 'U');
     const dirH = v => (v < 0 ? 'L' : 'R');
@@ -5992,7 +5966,7 @@ route('/moving-target', async () => {
     ));
     resultCard.appendChild(el('div', { class: 'kv' },
       el('div', { class: 'k' }, 'Накрутка ВЕРТИКАЛЬ (итог)'), el('div', { class: 'v', style: 'color:var(--good)' }, hasDrop ? `${fmt(Math.abs(totalV), 2)} mil ${dirV(totalV)} от нуля (≈${fmt(Math.abs(clicksV), 0)} кликов)` : '— (нужна поправка на дистанцию)'),
-      el('div', { class: 'k' }, 'Накрутка ГОРИЗОНТАЛЬ (итог)'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)}` + (hasWind ? ` (ветер ${fmt(Math.abs(windMil), 2)} ${dirH(windMil)}, ${srcText(state.windMode)})` : ' (ветер не задан)')),
+      el('div', { class: 'k' }, 'Накрутка ГОРИЗОНТАЛЬ (только ротор)'), el('div', { class: 'v', style: 'color:var(--good)' }, (Math.abs(totalH) < 0.005 ? '0 (ничего не крутить)' : `${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)}`) + ', ветер добавь сам'),
       el('div', { class: 'k' }, 'Точка A на сетке от центра'), el('div', { class: 'v' }, `вертикаль: ${off(holdY, 'выше', 'ниже', 'на уровне центра')}; горизонталь: ${off(holdX, 'правее', 'левее', 'по центру')}`),
       el('div', { class: 'k' }, 'Гонг пересечёт сетку'), el('div', { class: 'v accent' }, `${off(crossY, 'выше центра', 'ниже центра', 'на уровне центра')}; ${off(crossX, 'правее центра', 'левее центра', 'на вертикали центра')}`)
     ));
@@ -6009,7 +5983,8 @@ route('/moving-target', async () => {
       : `Вертикаль: обычная поправка ${cy ? (cy > 0 ? 'минус ' : 'плюс ') + fmt(Math.abs(cy), 2) + ' mil' : 'без изменений'}`;
     resultCard.appendChild(stepBox(1, 'КРУТИ БАРАБАНЫ', [
       vTxt,
-      `Горизонталь: ${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)}` + (hasWind ? ` (в том числе ветер ${fmt(Math.abs(windMil), 2)} ${dirH(windMil)})` : '')
+      (Math.abs(totalH) < 0.005 ? 'Горизонталь: ничего не крутить (на ротор поправка не нужна)' : `Горизонталь: ${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)} (только на ротор)`),
+      'Ветер добавь сам из Кестрела: вправо или влево от этой цифры'
     ]));
     resultCard.appendChild(stepBox(2, 'ЦЕЛЬСЯ', [
       'Точку A (центр гонга, севшего нижним краем на вал) поставь на сетке:',
