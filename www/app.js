@@ -5024,6 +5024,8 @@ function openRotorHelpSheet() {
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Обозначения направлений</h4>
       <p>Везде в приложении: <b>U/D</b> — вверх/вниз (Up/Down), <b>L/R</b> — влево/вправо (Left/Right). Единый стандарт для всех расчётов, не только ротора.</p>
 
+      <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Что такое «ёлочка» и «метка»</h4>
+      <p>«Ёлочка» (Christmas tree) — часть сетки прицела под горизонтальной линией: ряды точек или засечек, которые расходятся вниз и вбок. «Метка» — одна из точек или засечек на вертикальной линии ёлочки, которая стоит на нужное число mil ниже центра перекрестия. Если у твоей сетки нет ёлочки, возьми засечку на вертикальной шкале сетки ниже центра, ближайшую к нужному значению.</p>
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Шаг за шагом</h4>
       <p><b>1. Найди опорную точку у вала.</b> Это место, где гонг ТОЛЬКО НАЧИНАЕТ касаться вала своим НИЖНИМ краем — гонг там ещё виден полностью, но через мгновение начнёт прятаться. Это резкий, чётко видимый момент — гораздо легче поймать глазом, чем «половина гонга скрыта» (расплывчато) или центр гонга (вообще не видно, это не физическая точка).</p>
       <p><b>2. Докрути барабанчик</b> на «Итоговую накрутку» из расчёта, U (это обычная поправка на дистанцию + доп. смещение метода «3 часа» — они складываются, а не заменяют друг друга).</p>
@@ -5216,7 +5218,7 @@ route('/moving-target', async () => {
   const state = JSON.parse(localStorage.getItem('moving:last') || '{}');
   state.weaponId    = state.weaponId    ?? p.weaponId    ?? (weapons[0]?.id || '');
   state.cartridgeId = state.cartridgeId ?? p.cartridgeId ?? (cartridges[0]?.id || '');
-  state.distance_m  = state.distance_m  ?? 300;
+  state.distance_m  = state.distance_m  ?? 400;
   state.weather     = state.weather     || p.weather || { tempC: 15, pressureMbar: 1013, humidity: 50 };
   state.mode        = state.mode        || 'linear';   // linear | rotor
   state.angle_deg   = state.angle_deg   ?? 90;          // угол движения к LOS, 90 = полный фланг
@@ -5235,7 +5237,7 @@ route('/moving-target', async () => {
   }
   state.radius_m    = state.radius_m    ?? 0.4;
   state.blades      = state.blades      ?? 4;
-  state.bladeSize_m = state.bladeSize_m ?? 0.1;
+  state.bladeSize_m = state.bladeSize_m ?? 0.25;
   state.whiteMask   = Array.isArray(state.whiteMask) ? state.whiteMask : []; // белые гонги: [true, false, …] по номерам лопастей
   function normMask() {
     const n = Math.max(1, Math.min(24, Math.round(state.blades) || 1));
@@ -5245,6 +5247,17 @@ route('/moving-target', async () => {
   }
   normMask();
   let taps = []; // отметки времени (мс) нажатий «белый гонг прошёл» для замера периода
+  // TOF и поправки: «авто» — из солвера по оружию и патрону, «вручную» — числа из другой
+  // программы (например, AB Quantum). Вертикаль: положительное = накрутить вверх (U);
+  // ветер вручную: число + сторона R/L (куда накручивать).
+  state.tofMode = state.tofMode || 'auto';          state.tofManual = state.tofManual ?? null;
+  state.dropMode = state.dropMode || 'auto';        state.dropManual_mil = state.dropManual_mil ?? null;
+  state.windMode = state.windMode || 'auto';        state.windManual_mil = state.windManual_mil ?? null;
+  state.windManualDir = state.windManualDir || 'R';
+  state.windSpeed = state.windSpeed ?? 0;           // м/с, для авто-расчёта
+  state.windClock = state.windClock ?? 3;           // откуда дует, по часам от стрелка: 12 — в лицо, 3 — справа, 6 — в спину, 9 — слева
+  // часы → угол ветра для солвера (0 — попутный, 90 — справа, 180 — встречный)
+  function windAngleFromClock(h) { return (((180 - 30 * Number(h)) % 360) + 360) % 360; }
   state.rotationDir = state.rotationDir || 'cw';   // cw | ccw — куда крутится (вид от стрелка)
   state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
   state.radiusUnit    = state.radiusUnit    || 'm'; // m | mil — как вводить радиус лопастей
@@ -5261,7 +5274,8 @@ route('/moving-target', async () => {
     const w = weapons.find(x => x.id === state.weaponId);
     const c = cartridges.find(x => x.id === state.cartridgeId);
     if (!w || !c) return null;
-    const input = buildSolverInputFor(w, c, [state.distance_m], state.weather);
+    const wx = { ...state.weather, windSpeed: state.windSpeed || 0, windAngle_deg: windAngleFromClock(state.windClock) };
+    const input = buildSolverInputFor(w, c, [state.distance_m], wx);
     const r = Ballistics.solve(input);
     const row = r.rows[0];
     if (row && c) applyCartridgeOffset(row, c, true);
@@ -5545,6 +5559,48 @@ route('/moving-target', async () => {
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
     ));
+    // Данные баллистики: TOF, поправка на дистанцию и ветер — авто (солвер по
+    // оружию и патрону) или вручную (например, из AB Quantum)
+    const row0 = computeRow();
+    function autoManual(title, modeKey, manualEl, autoEls, autoText) {
+      const manual = state[modeKey] === 'manual';
+      const wrap = el('div', { style: 'margin-top:12px' });
+      wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap' },
+        el('label', { style: 'margin:0' }, title),
+        el('div', { class: 'chips', style: 'margin:0' },
+          el('div', { class: 'chip' + (!manual ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+            onclick: () => { state[modeKey] = 'auto'; save(); } }, 'авто'),
+          el('div', { class: 'chip' + (manual ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+            onclick: () => { state[modeKey] = 'manual'; save(); } }, 'вручную (AB Quantum)')
+        )
+      ));
+      if (manual) wrap.appendChild(manualEl);
+      else {
+        for (const e of autoEls || []) wrap.appendChild(e);
+        wrap.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' }, autoText));
+      }
+      return wrap;
+    }
+    const manualInput = (name, val) => el('input', { name, type: 'text', inputmode: 'decimal', 'data-numeric': '1', value: val ?? '' });
+    modeCard.appendChild(el('h2', { style: 'margin-top:14px' }, 'Данные баллистики'));
+    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px' },
+      'Авто — считает приложение по оружию и патрону (выбери их выше). Вручную — вставь числа из AB Quantum или другой программы.'));
+    modeCard.appendChild(autoManual('Время полёта пули (TOF), с', 'tofMode', manualInput('tofManual', state.tofManual), [],
+      row0 ? `авто: ${fmt(row0.tof_s, 3)} с` : 'авто: выбери оружие и патрон выше'));
+    modeCard.appendChild(autoManual('Поправка на дистанцию, mil (вверх U — положительное число)', 'dropMode', manualInput('dropManual_mil', state.dropManual_mil), [],
+      row0 ? `авто: ${fmt(Math.abs(row0.drop_mil), 2)} mil ${row0.drop_mil < 0 ? 'D' : 'U'}` : 'авто: выбери оружие и патрон выше'));
+    const windManualEl = el('div', { class: 'row' },
+      el('div', {}, el('label', { style: 'font-size:11px' }, 'Поправка на ветер, mil'), manualInput('windManual_mil', state.windManual_mil)),
+      selectInput('windManualDir', 'Накрутить', state.windManualDir, [{ value: 'R', label: 'R (вправо)' }, { value: 'L', label: 'L (влево)' }])
+    );
+    const clockOpts = [];
+    for (let h = 1; h <= 12; h++) clockOpts.push({ value: h, label: `${h} ч` + ({ 12: ' (в лицо)', 3: ' (справа)', 6: ' (в спину)', 9: ' (слева)' }[h] || '') });
+    const windAutoEls = [el('div', { class: 'row' },
+      numInput('windSpeed', 'Ветер, м/с', state.windSpeed),
+      selectInput('windClock', 'Откуда дует (часы от стрелка)', state.windClock, clockOpts)
+    )];
+    modeCard.appendChild(autoManual('Ветер', 'windMode', windManualEl, windAutoEls,
+      row0 ? `авто: ${fmt(Math.abs(row0.drift_mil), 2)} mil ${row0.drift_mil < 0 ? 'L' : 'R'} (накрутить по горизонтали)` : 'авто: выбери оружие и патрон выше'));
     // схема ротора: лопасти на равных углах, тап по гонгу = белый / не белый
     modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:10px' },
       'Схема ротора. Нажми на гонг, чтобы отметить белые (белый круг) и не белые (тёмный). Номера лопастей идут по часовой от верхней.'));
@@ -5579,6 +5635,12 @@ route('/moving-target', async () => {
       Object.assign(state, {
         rpm, radius_m, blades, bladeSize_m,
         rotationDir: d.rotationDir, reactionSec: d.reactionSec,
+        tofManual: d.tofManual !== undefined ? d.tofManual : state.tofManual,
+        dropManual_mil: d.dropManual_mil !== undefined ? d.dropManual_mil : state.dropManual_mil,
+        windManual_mil: d.windManual_mil !== undefined ? d.windManual_mil : state.windManual_mil,
+        windManualDir: d.windManualDir || state.windManualDir,
+        windSpeed: d.windSpeed != null ? d.windSpeed : state.windSpeed,
+        windClock: d.windClock ? Number(d.windClock) : state.windClock,
         measureSec, measuredPasses
       });
       normMask();
@@ -5701,18 +5763,25 @@ route('/moving-target', async () => {
       el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
     ));
 
-    // белые гонги: интервалы между проходами через опорную точку и момент спуска
-    // (tLead = TOF + реакция из солвера; без оружия/патрона — только интервалы)
-    resultCard.appendChild(whiteTimingBlock(periodSec, row ? row.tof_s + (state.reactionSec || 0) : null));
+    // TOF и поправки: авто (солвер по оружию и патрону) или вручную (например, из AB Quantum)
+    const tof = state.tofMode === 'manual' ? state.tofManual : (row ? row.tof_s : null);
+    const dropMil = state.dropMode === 'manual' ? state.dropManual_mil : (row ? row.drop_mil : null);
+    const windMil = state.windMode === 'manual'
+      ? (state.windManual_mil == null ? null : state.windManual_mil * (state.windManualDir === 'L' ? -1 : 1))
+      : (row ? row.drift_mil : null);
+    const hasTof = tof != null && isFinite(tof) && tof > 0;
+    const tLead = hasTof ? tof + (state.reactionSec || 0) : null;
 
-    if (!row) {
+    // белые гонги: интервалы между проходами через опорную точку и момент спуска
+    // (tLead = TOF + реакция; без TOF — только интервалы)
+    resultCard.appendChild(whiteTimingBlock(periodSec, tLead));
+
+    if (!hasTof) {
       resultCard.appendChild(el('div', { class: 'banner' },
-        'Это геометрия цели — оружие и патрон для неё не нужны. Чтобы получить точку прицеливания и докрутку барабанчика (нужна реальная баллистическая поправка по высоте), выбери оружие и патрон в «Параметрах выстрела» выше.'));
+        'Нужно время полёта (TOF). Выбери оружие и патрон выше (авто) или введи TOF вручную, например из AB Quantum, в блоке «Данные баллистики».'));
       return;
     }
 
-    const tof = row.tof_s;
-    const tLead = tof + (state.reactionSec || 0);
     const phi = omega * tLead; // рад, угол опережения от опорной точки (касание нижним краем)
     const dxBase = R_center * (Math.cos(thetaRef + phi) - Math.cos(thetaRef)); // всегда ≤0
     const dx_m = state.rotationDir === 'ccw' ? -dxBase : dxBase;
@@ -5720,10 +5789,14 @@ route('/moving-target', async () => {
     const dx_mil = state.distance_m > 0 ? (dx_m / state.distance_m) * 1000 : 0;
     const dy_mil = state.distance_m > 0 ? (dy_m / state.distance_m) * 1000 : 0;
 
-    const dropMil = row.drop_mil || 0;           // реальная поправка по высоте на дистанцию (солвер)
-    const totalDial = dropMil + dy_mil;           // итоговая накрутка на барабанчике
-    const holdMark = -dy_mil;                     // метка на ёлочке (ниже центра)
-    const clicksExtra = dy_mil / 0.1;              // доп. клики сверх обычной поправки (0.1 mil/клик)
+    const hasDrop = dropMil != null && isFinite(dropMil);
+    const hasWind = windMil != null && isFinite(windMil);
+    const totalDial = hasDrop ? dropMil + dy_mil : null; // итоговая накрутка на барабанчике
+    const holdMark = -dy_mil;                            // метка на ёлочке (ниже центра)
+    const clicksTotal = hasDrop ? totalDial / 0.1 : null; // клики (0.1 mil/клик)
+    const dirV = v => (v < 0 ? 'D' : 'U');
+    const dirH = v => (v < 0 ? 'L' : 'R');
+    const srcText = m => (m === 'manual' ? 'вручную' : 'солвер');
 
     resultCard.appendChild(el('hr'));
     resultCard.appendChild(el('div', { style: 'display:flex;justify-content:center;align-items:center;gap:6px' },
@@ -5734,31 +5807,30 @@ route('/moving-target', async () => {
         onclick: () => openRotorHelpSheet()
       }, 'i')
     ));
+    const bigCard = (label, valText, unitText, note) => el('div', { class: 'info-card' },
+      el('div', { class: 'label' }, label),
+      el('div', { class: 'clock-display', style: 'font-size:26px' }, valText, el('span', { style: 'font-size:12px;color:var(--muted)' }, unitText)),
+      el('div', { class: 'muted center', style: 'font-size:11px' }, note));
     resultCard.appendChild(el('div', { class: 'row' },
-      el('div', { class: 'info-card' },
-        el('div', { class: 'label' }, 'Поправка на дистанцию'),
-        el('div', { class: 'clock-display', style: 'font-size:26px' }, fmt(Math.abs(dropMil), 2), el('span', { style: 'font-size:12px;color:var(--muted)' }, `mil ${dropMil < 0 ? 'D' : 'U'}`)),
-        el('div', { class: 'muted center', style: 'font-size:11px' }, `солвер, ${state.distance_m} м`)
-      ),
-      el('div', { class: 'info-card' },
-        el('div', { class: 'label' }, 'Поправка на вращение'),
-        el('div', { class: 'clock-display', style: 'font-size:26px' }, fmt(Math.abs(dy_mil), 2), el('span', { style: 'font-size:12px;color:var(--muted)' }, `mil ${dy_mil < 0 ? 'D' : 'U'}`)),
-        el('div', { class: 'muted center', style: 'font-size:11px' }, 'упреждение, метод «3 часа»')
-      )
+      bigCard('Поправка на дистанцию', hasDrop ? fmt(Math.abs(dropMil), 2) : '—', hasDrop ? `mil ${dirV(dropMil)}` : '', hasDrop ? `${srcText(state.dropMode)}, ${state.distance_m} м` : 'нет данных'),
+      bigCard('Поправка на вращение', fmt(Math.abs(dy_mil), 2), `mil ${dirV(dy_mil)}`, 'упреждение, метод «3 часа»')
     ));
     resultCard.appendChild(el('div', { class: 'kv' },
-      el('div', { class: 'k' }, 'Итоговая накрутка (дистанция + вращение)'), el('div', { class: 'v', style: 'color:var(--good)' }, `${fmt(totalDial, 2)} mil (≈${fmt(clicksExtra + dropMil/0.1, 0)} кликов)`),
-      el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(Math.abs(holdMark), 2)} mil ${holdMark < 0 ? 'D' : 'U'} от центра`),
-      el('div', { class: 'k' }, 'Пересечение линии'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'L' : 'R'}`)
+      el('div', { class: 'k' }, 'Итоговая накрутка вверх (дистанция + вращение)'), el('div', { class: 'v', style: 'color:var(--good)' }, hasDrop ? `${fmt(totalDial, 2)} mil ${dirV(totalDial)} (≈${fmt(clicksTotal, 0)} кликов)` : '— (нужна поправка на дистанцию)'),
+      el('div', { class: 'k' }, 'Держать метку на ёлочке'), el('div', { class: 'v' }, `${fmt(Math.abs(holdMark), 2)} mil ${dirV(holdMark)} от центра`),
+      el('div', { class: 'k' }, 'Пересечение линии'), el('div', { class: 'v accent' }, `${fmt(Math.abs(dx_mil), 2)} mil ${dirH(dx_mil)}`),
+      el('div', { class: 'k' }, 'Ветер: накрутить по горизонтали'), el('div', { class: 'v', style: 'color:var(--good)' }, hasWind ? `${fmt(Math.abs(windMil), 2)} mil ${dirH(windMil)} (${srcText(state.windMode)})` : '— (ветер не задан)')
     ));
     resultCard.appendChild(el('div', { class: 'kv' },
-      el('div', { class: 'k' }, 'Время полёта пули'), el('div', { class: 'v' }, fmt(tof, 2) + ' с'),
-      el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 2) + ' с')
+      el('div', { class: 'k' }, 'Время полёта пули'), el('div', { class: 'v' }, fmt(tof, 3) + ' с (' + srcText(state.tofMode) + ')'),
+      el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 3) + ' с')
     ));
     resultCard.appendChild(el('div', { class: 'banner accent' },
-      `1) Докрути ${fmt(totalDial, 2)} mil ${totalDial < 0 ? 'D' : 'U'} (обычная поправка ${fmt(dropMil, 2)} + доп. ${fmt(dy_mil, 2)} mil сверху). ` +
-      `2) Держи метку «${fmt(Math.abs(holdMark), 2)} mil ${holdMark < 0 ? 'D' : 'U'}» на ёлочке в точке у вала, где гонг ТОЛЬКО НАЧИНАЕТ касаться вала своим нижним краем (первый момент касания — гонг ещё виден полностью). ` +
-      `3) Жми спуск, когда гонг пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия — это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dx_mil < 0 ? 'L' : 'R'} (просто сверься, что всё сошлось, отдельно наводить сюда не нужно).`));
+      `1) Накрути на барабане вверх ${hasDrop ? fmt(totalDial, 2) + ' mil' : '(обычная поправка на дистанцию) + ' + fmt(dy_mil, 2) + ' mil'}` +
+      (hasDrop ? ` (обычная поправка ${fmt(dropMil, 2)} + дополнительная ${fmt(dy_mil, 2)} mil)` : '') + '. ' +
+      (hasWind ? `Ветер: накрути по горизонтали ${fmt(Math.abs(windMil), 2)} mil ${dirH(windMil)}. ` : '') +
+      `2) Положи на опорную точку у вала (где гонг нижним краем начинает касаться вала) метку «ёлочки», которая стоит на ${fmt(Math.abs(holdMark), 2)} mil ${dirV(holdMark)} от центра перекрестия. ` +
+      `3) Жми спуск, когда центр гонга пересечёт ГОРИЗОНТАЛЬНУЮ линию перекрестия: это случится на ${fmt(Math.abs(dx_mil), 2)} mil ${dirH(dx_mil)} от вертикальной линии.`));
 
     // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
     // значок-лупа открывает увеличенную (×3) версию поверх экрана, для ознакомления;
