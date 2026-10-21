@@ -73,7 +73,7 @@ Ballistic Calculator/
 │                                  (не в git не нужен, содержимое не трогать)
 └── www/                        ← ВЕСЬ код приложения (общий для APK и веб)
     ├── index.html               ← оболочка, топбар, нижняя навигация, боковое меню
-    ├── app.js (~7400 строк)     ← все роуты/экраны, вся UI-логика (ротор — `/moving-target`)
+    ├── app.js (~7300 строк)     ← все роуты/экраны, вся UI-логика (ротор — `/moving-target`)
     ├── ballistics.js            ← солвер: RK4, G1/G7/custom drag, Coriolis, spin drift и т.д.
     ├── storage.js               ← IndexedDB-обёртка + merge-синхронизация (mergeAll)
     ├── devices.js                ← Bluetooth (Kestrel, SIG KILO) + компас + Open-Meteo
