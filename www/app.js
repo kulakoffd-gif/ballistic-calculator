@@ -5039,7 +5039,7 @@ function openRotorHelpSheet() {
       <p><b>2.</b> Выбери сигнал и введи TOF, поправку на дистанцию и ветер (авто или из AB Quantum).</p>
       <p><b>3.</b> Накрути барабаны на «Накрутка ВЕРТИКАЛЬ» и «Накрутка ГОРИЗОНТАЛЬ» из расчёта. Это итог: обычная поправка и ветер уже учтены.</p>
       <p><b>4.</b> Наведи точку A на сетку так, как написано в «Точка A на сетке от центра».</p>
-      <p><b>Схемы под расчётом.</b> Приложение рисует две картинки по твоим данным: ротор (где гонг в момент выстрела, где точка A, за сколько секунд гонг дойдёт до A) и сетку прицела (куда поставить A, где гонг пересечёт сетку, «ЖМИ СПУСК»). Карточки «КРУТИ / ЦЕЛЬСЯ / ЖМИ» над ними содержат ту же информацию крупным текстом. Сетка на картинке условная: шкала в mil, «ёлочка» со строк 2 mil вниз.</p>
+      <p><b>Схемы под расчётом.</b> Приложение рисует две картинки по твоим данным: ротор (где гонг в момент выстрела, где точка A, за сколько секунд гонг дойдёт до A) и сетку прицела (куда поставить A, где гонг пересечёт сетку, «ЖМИ СПУСК»). Карточки «КРУТИ / ЦЕЛЬСЯ / ЖМИ» над ними содержат ту же информацию крупным текстом. Сетка на картинке — ZCO MPCT2, нарисована по присланному изображению (засечки через 0,2 mil, «ёлочка» с 2 mil вниз, чёрные штанги от 8 mil). Если у тебя другая сетка, её надо добавить отдельно.</p>
       <p><b>5.</b> Жди белый гонг. Жми спуск, когда центр гонга пересечёт выбранную линию. Место пересечения написано в «Гонг пересечёт сетку». Это проверка, что всё сошлось.</p>
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Ограничения (приложение предупреждает)</h4>
@@ -5098,6 +5098,71 @@ function openReticleCalHelpSheet() {
 // Схема сетки для метода «3 часа» на роторе: кружок = метка удержания (на
 // ёлочке, ниже центра), крестик = точка на горизонтальной линии, где её
 // пересечёт гонг — сигнал к выстрелу.
+// Сетка ZCO MPCT2 (FFP, mil). Геометрия снята с присланного пользователем изображения:
+// 36,9 px на mil; горизонталь и вертикаль красные, засечки через 0,2 mil (крупные на целых mil),
+// особая зона 4-5 mil с шагом 0,1; горизонталь до ±8 mil, вертикаль от +8 mil вверх до −13 mil вниз,
+// за 8 mil вверх, влево и вправо идут чёрные штанги с острыми концами; «ёлочка» — строки на 2…12 mil
+// вниз с полушириной, равной половине номера строки. Все размеры в долях mil, масштаб px на mil.
+function drawMpct2Reticle(mk, px, maxMil, V) {
+  const RED = '#d92027', BLK = '#111111';
+  const sc = px / 36.9;                    // длины засечек в «пикселях картинки» -> единицы схемы
+  const ln = (x1, y1, x2, y2, w, c) => mk('line', { x1, y1, x2, y2, stroke: c || RED, 'stroke-width': w });
+  const lim = maxMil + 1;                  // сколько mil видно от центра
+  const post = 0.15 * px, tipL = 0.28 * px, e8 = 8 * px, far = (lim + 0.5) * px;
+  // чёрные штанги (вправо, влево, вверх) с острыми концами на 8 mil
+  for (const sx of [1, -1]) {
+    mk('polygon', { points: `${sx * e8},0 ${sx * (e8 + tipL)},${-post} ${sx * far},${-post} ${sx * far},${post} ${sx * (e8 + tipL)},${post}`, fill: BLK });
+  }
+  mk('polygon', { points: `0,${-e8} ${-post},${-(e8 + tipL)} ${-post},${-far} ${post},${-far} ${post},${-(e8 + tipL)}`, fill: BLK });
+  // оси
+  ln(-e8, 0, e8, 0, 0.9);
+  ln(0, -e8, 0, 13 * px, 0.9);
+  // засечки горизонтали: длина вверх/вниз в px картинки
+  const hPat = f => {
+    const t = Math.round((f % 1) * 10 + 1e-6);
+    if (f > 4 && f < 5) return { 1: [4, 1], 2: [0, 4], 3: [0, 4], 4: [3, 1], 5: [5, 6], 6: [4, 1], 7: [0, 4], 8: [0, 4], 9: [4, 1] }[t];
+    return { 0: [7, 8], 2: [0, 4], 4: [3.5, 4], 6: [4, 4], 8: [0, 4] }[t];
+  };
+  for (let i = 1; i <= Math.min(80, Math.round(lim * 10)); i++) {
+    const f = i / 10, d = hPat(f);
+    if (!d || f > 8) continue;
+    for (const sx of [1, -1]) ln(sx * f * px, -d[0] * sc, sx * f * px, d[1] * sc, 0.7);
+  }
+  // засечки вертикали: влево/вправо в px картинки; вверх до 8 mil, вниз до 13 mil
+  const vPat = f => {
+    const t = Math.round((f % 1) * 10 + 1e-6);
+    if (f > 4 && f < 5) return { 1: [4, 0], 2: [0, 4], 3: [0, 4], 4: [3.5, 0], 5: [6, 6], 6: [4, 0], 7: [0, 4], 8: [0, 4], 9: [4, 0] }[t];
+    return { 0: [7.5, 7.5], 2: [4, 4], 4: [6, 5.5], 6: [5.5, 5.5], 8: [3.5, 4] }[t];
+  };
+  for (let i = 1; i <= Math.min(130, Math.round(lim * 10)); i++) {
+    const f = i / 10, d = vPat(f);
+    if (!d) continue;
+    if (f <= 8) ln(-d[0] * sc, -f * px, d[1] * sc, -f * px, 0.7);   // вверх
+    ln(-d[0] * sc, f * px, d[1] * sc, f * px, 0.7);                 // вниз
+  }
+  // «ёлочка»: строки на 2…12 mil, полуширина = номер/2, засечки как на оси
+  const rPat = t => ({ 0: [7, 7], 2: [1, 3], 4: [4, 3], 6: [4, 3], 8: [1, 3] }[t]);
+  for (let r = 2; r <= Math.min(12, Math.floor(lim)); r++) {
+    const y = r * px, hw = r / 2 * px;
+    ln(-hw, y, hw, y, 0.9);
+    for (let i = 1; i * 0.2 < r / 2 - 0.04; i++) {  // шаг 0,2 mil вдоль строки
+      const m = i * 0.2, tt = i % 5 === 0 ? 0 : (i % 5) * 2;
+      const d = rPat(tt);
+      if (!d) continue;
+      for (const sx of [1, -1]) ln(sx * m * px, y - d[0] * sc, sx * m * px, y + d[1] * sc, 0.7);
+    }
+    for (const sx of [1, -1]) ln(sx * hw, y - 7 * sc, sx * hw, y + 7 * sc, 0.7);   // концевая засечка
+  }
+  // подписи: каждые 2 mil на горизонтали, вертикали и строках
+  const lbl = (x, y, str, anchor) => { const t = mk('text', { x, y, fill: RED, 'font-size': 8, 'text-anchor': anchor || 'middle' }); t.textContent = str; };
+  for (const m of [2, 4, 6, 8]) {
+    if (m > lim) break;
+    for (const sx of [1, -1]) lbl(sx * m * px, 17 * sc, m);
+    lbl(-8, -m * px + 3, m, 'end');
+  }
+  for (let r = 2; r <= Math.min(12, Math.floor(lim)); r += 2) lbl(-r / 2 * px - 6, r * px + 3, r, 'end');
+}
+
 function drawRotorReticleDiagram(o, zoom) {
   // o: crossX/crossY — где центр гонга пересечёт сетку в момент выстрела (от центра, mil, вправо/вверх +),
   // holdX/holdY — где на сетке стоит точка A (от центра), rgMil — радиус гонга в mil, path — точки
@@ -5117,52 +5182,32 @@ function drawRotorReticleDiagram(o, zoom) {
   const m = 1 / z;
   const defs = mk('defs', {});
   const mrk = mk('marker', { id: 'rotArrow', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, defs);
-  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#ffd24a' }, mrk);
-  const W = '#e6edf3', G = '#8b97a7';
-  // оси и засечки через 1 mil (подписи через 1 или 2 mil)
-  mk('line', { x1: -V + 4, y1: 0, x2: V - 4, y2: 0, stroke: W, 'stroke-width': 0.8 });
-  mk('line', { x1: 0, y1: -V + 4, x2: 0, y2: V - 4, stroke: W, 'stroke-width': 0.8 });
-  const step = maxMil > 6 ? 2 : 1;
-  for (let k = 1; k <= maxMil; k++) {
-    const t = k * px;
-    mk('line', { x1: t, y1: -3, x2: t, y2: 3, stroke: W, 'stroke-width': 0.6 });
-    mk('line', { x1: -t, y1: -3, x2: -t, y2: 3, stroke: W, 'stroke-width': 0.6 });
-    mk('line', { x1: -3, y1: -t, x2: 3, y2: -t, stroke: W, 'stroke-width': 0.6 });
-    if (k % step === 0) {
-      for (const sx of [1, -1]) { const tx = mk('text', { x: sx * t, y: 13, fill: G, 'font-size': 8, 'text-anchor': 'middle' }); tx.textContent = k; }
-      const ty = mk('text', { x: -6, y: -t + 3, fill: G, 'font-size': 8, 'text-anchor': 'end' }); ty.textContent = k;
-    }
-  }
-  // «ёлочка»: строки через 1 mil от 2 mil вниз, полуширина = номер строки / 2
-  for (let r = 2; r <= Math.min(maxMil, 12); r++) {
-    const yy = r * px, hw = r * px / 2;
-    mk('line', { x1: -hw, y1: yy, x2: hw, y2: yy, stroke: W, 'stroke-width': 0.8 });
-    mk('line', { x1: -hw, y1: yy - 3, x2: -hw, y2: yy + 3, stroke: W, 'stroke-width': 0.6 });
-    mk('line', { x1: hw, y1: yy - 3, x2: hw, y2: yy + 3, stroke: W, 'stroke-width': 0.6 });
-    const tr = mk('text', { x: -hw - 5, y: yy + 3, fill: G, 'font-size': 8, 'text-anchor': 'end' }); tr.textContent = r;
-  }
+  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#b45309' }, mrk);
+  // подложка как на фото сетки: светлый фон, красные линии, чёрные штанги
+  svg.style.background = '#ffffff';
+  drawMpct2Reticle(mk, px, maxMil, V);
   // путь гонга от места выстрела до A
   const P = q => [q[0] * px, -q[1] * px];
   const pp = (o.path || []).map(P);
   if (pp.length > 1) {
-    mk('polyline', { points: pp.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#ffd24a', 'stroke-width': 1.4 * m, 'stroke-dasharray': `${4 * m} ${3 * m}`, 'marker-end': 'url(#rotArrow)' });
+    mk('polyline', { points: pp.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#b45309', 'stroke-width': 1.4 * m, 'stroke-dasharray': `${4 * m} ${3 * m}`, 'marker-end': 'url(#rotArrow)' });
   }
   // A — куда придут пуля и гонг
   const [ax, ay] = P([o.holdX, o.holdY]);
-  mk('circle', { cx: ax, cy: ay, r: 6 * m, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 * m });
-  mk('circle', { cx: ax, cy: ay, r: 1.6 * m, fill: '#ff8b3d' });
+  mk('circle', { cx: ax, cy: ay, r: 6 * m, fill: 'none', stroke: '#ea580c', 'stroke-width': 2 * m });
+  mk('circle', { cx: ax, cy: ay, r: 1.6 * m, fill: '#ea580c' });
   const aRight = ax >= 0; // подпись снаружи от центра и выше оси, чтобы не ложиться на линии
-  const aL = mk('text', { x: ax + (aRight ? 10 : -10) * m, y: ay - 9 * m, fill: '#ff8b3d', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': aRight ? 'start' : 'end' }); aL.textContent = 'A: сюда пуля';
+  const aL = mk('text', { x: ax + (aRight ? 10 : -10) * m, y: ay - 9 * m, fill: '#ea580c', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': aRight ? 'start' : 'end' }); aL.textContent = 'A: сюда пуля';
   // гонг в момент выстрела
   const [gx, gy] = P([o.crossX, o.crossY]);
   const gr = Math.max((o.rgMil || 0) * px, 6 * m);
-  mk('circle', { cx: gx, cy: gy, r: gr, fill: '#ffffff', stroke: '#4ade80', 'stroke-width': 2 * m });
+  mk('circle', { cx: gx, cy: gy, r: gr, fill: '#ffffff', stroke: '#15803d', 'stroke-width': 2 * m });
   const gRight = gx <= 0;
-  const gL = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy - 2 * m, fill: '#4ade80', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': gRight ? 'end' : 'start' }); gL.textContent = 'ЖМИ СПУСК';
-  const gL2 = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy + 10 * m, fill: '#4ade80', 'font-size': 9 * m, 'text-anchor': gRight ? 'end' : 'start' }); gL2.textContent = 'гонг здесь';
+  const gL = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy - 2 * m, fill: '#15803d', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': gRight ? 'end' : 'start' }); gL.textContent = 'ЖМИ СПУСК';
+  const gL2 = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy + 10 * m, fill: '#15803d', 'font-size': 9 * m, 'text-anchor': gRight ? 'end' : 'start' }); gL2.textContent = 'гонг здесь';
   // подпись линии-сигнала
   const lineTxt = o.trig === 'h' ? 'сигнал: горизонталь' : (o.trig === 'v' ? 'сигнал: вертикаль' : 'сигнал: центр');
-  const lt = mk('text', { x: -V + 8, y: -V + 14, fill: '#4ade80', 'font-size': 10, 'text-anchor': 'start' }); lt.textContent = lineTxt;
+  const lt = mk('text', { x: -V + 8, y: -V + 14, fill: '#15803d', 'font-size': 10, 'text-anchor': 'start' }); lt.textContent = lineTxt;
   return svg;
 }
 
@@ -5196,23 +5241,23 @@ function drawRotorSceneDiagram(o) {
   for (let i = 0; i <= 8; i++) arc.push(Pt(a0 - (a0 - o.theta) * i / 8));
   const defs = mk('defs', {});
   const mrk = mk('marker', { id: 'scArrow', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, defs);
-  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#ffd24a' }, mrk);
-  mk('polyline', { points: arc.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#ffd24a', 'stroke-width': 1.5, 'marker-end': 'url(#scArrow)' });
+  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#b45309' }, mrk);
+  mk('polyline', { points: arc.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#b45309', 'stroke-width': 1.5, 'marker-end': 'url(#scArrow)' });
   // A: пустой гонг и точка центра
-  mk('circle', { cx: A[0], cy: A[1], r: rg, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 1.5, 'stroke-dasharray': '3 2' });
-  mk('circle', { cx: A[0], cy: A[1], r: 3, fill: '#ff8b3d' });
+  mk('circle', { cx: A[0], cy: A[1], r: rg, fill: 'none', stroke: '#ea580c', 'stroke-width': 1.5, 'stroke-dasharray': '3 2' });
+  mk('circle', { cx: A[0], cy: A[1], r: 3, fill: '#ea580c' });
   // гонг в момент выстрела
-  mk('circle', { cx: Gp[0], cy: Gp[1], r: rg, fill: '#ffffff', stroke: '#4ade80', 'stroke-width': 2 });
+  mk('circle', { cx: Gp[0], cy: Gp[1], r: rg, fill: '#ffffff', stroke: '#15803d', 'stroke-width': 2 });
   // подписи (в сторону от ротора)
   const side = ccw ? -1 : 1;
   const lx = A[0] + side * (rg + 14);
   const anchor = ccw ? 'end' : 'start';
-  txt(lx, A[1] + 4, 'A', '#ff8b3d', 14, anchor, 700);
-  txt(lx, A[1] + 18, 'сюда придут', '#ff8b3d', 10, anchor);
-  txt(lx, A[1] + 30, 'гонг и пуля', '#ff8b3d', 10, anchor);
+  txt(lx, A[1] + 4, 'A', '#ea580c', 14, anchor, 700);
+  txt(lx, A[1] + 18, 'сюда придут', '#ea580c', 10, anchor);
+  txt(lx, A[1] + 30, 'гонг и пуля', '#ea580c', 10, anchor);
   const gxl = Gp[0] + side * (rg + 8);
-  txt(gxl, Gp[1] - 2, 'ВЫСТРЕЛ', '#4ade80', 11, anchor, 700);
-  txt(gxl, Gp[1] + 11, 'гонг здесь', '#4ade80', 10, anchor);
+  txt(gxl, Gp[1] - 2, 'ВЫСТРЕЛ', '#15803d', 11, anchor, 700);
+  txt(gxl, Gp[1] + 11, 'гонг здесь', '#15803d', 10, anchor);
   // размеры dy / dx
   const dxMil = Math.abs(o.dxMil), dyMil = Math.abs(o.dyMil);
   const vx = A[0] + side * (rg + 52);
@@ -5226,7 +5271,7 @@ function drawRotorSceneDiagram(o) {
   mk('line', { x1: Gp[0], y1: hy - 4, x2: Gp[0], y2: hy + 4, stroke: '#8b97a7', 'stroke-width': 0.8 });
   mk('line', { x1: A[0], y1: hy - 4, x2: A[0], y2: A[1] - rg - 4, stroke: '#8b97a7', 'stroke-width': 0.5, 'stroke-dasharray': '2 3' });
   txt((Gp[0] + A[0]) / 2, hy - 5, (o.dxMil > 0 ? 'правее' : 'левее') + ' A на ' + fmt(dxMil, 2) + ' mil', '#cfd6e2', 10, 'middle');
-  txt(W / 2, H - 10, 'до A гонг идёт ' + fmt(o.tLead, 2) + ' с (полёт пули + реакция)', '#ffd24a', 11, 'middle', 700);
+  txt(W / 2, H - 10, 'до A гонг идёт ' + fmt(o.tLead, 2) + ' с (полёт пули + реакция)', '#b45309', 11, 'middle', 700);
   return svg;
 }
 
@@ -6002,7 +6047,7 @@ route('/moving-target', async () => {
     const shot = { crossX, crossY, holdX, holdY, rgMil: r_gong / mpm, path: pathRel, trig };
     resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:12px' }, 'Схема ротора: где гонг при выстреле и точка A'));
     resultCard.appendChild(drawRotorSceneDiagram({ R: R_center, rg: r_gong, theta: thetaRef, phi, ccw, dxMil: dx_mil, dyMil: dy_mil, tLead }));
-    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:12px' }, 'Сетка прицела (условно, шкала в mil): куда целиться и где гонг в момент выстрела'));
+    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:12px' }, 'Сетка ZCO MPCT2 (по присланной картинке, шкала в mil): куда целиться и где гонг в момент выстрела'));
     resultCard.appendChild(el('div', { style: 'position:relative;max-width:360px;margin:4px auto 0' },
       drawRotorReticleDiagram(shot, 1),
       el('button', {
