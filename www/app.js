@@ -5147,6 +5147,68 @@ function drawRotorReticleDiagram(crossMil, holdMil, zoom) {
   return svg;
 }
 
+// Схема ротора по введённым данным: N лопастей на равных углах (лопасть №1
+// вверху, дальше по часовой стрелке), гонг на конце каждой. Тап по гонгу —
+// белый / не белый. Длина лопасти считается до начала гонга, центр гонга —
+// на длина + ½ диаметра. Пунктир — горизонт (вал земли скрывает нижнюю часть).
+function drawRotorBladesDiagram(opts, onToggle) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const N = Math.max(1, Math.min(24, Math.round(opts.blades) || 1));
+  const len = Math.max(opts.len_m || 0, 0.001);
+  const gong = Math.max(opts.gong_m || 0, 0.001);
+  const V = 130; // половина стороны viewBox
+  const s = (V - 14) / (len + gong); // SVG-юнитов на метр, внешний край гонга у кольца V−14
+  let rg = Math.max((gong / 2) * s, 9); // не мельче 9, чтобы по гонгу можно было попасть пальцем
+  let Rc = (len + gong / 2) * s;
+  if (Rc + rg > V - 8) Rc = V - 8 - rg;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `-${V} -${V} ${2 * V} ${2 * V}`);
+  svg.style.width = 'min(300px, 92vw)'; svg.style.display = 'block'; svg.style.margin = '8px auto';
+  svg.style.touchAction = 'manipulation';
+  const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
+
+  // горизонт: нижняя половина затенена
+  mk('rect', { x: -V, y: 0, width: 2 * V, height: V, fill: '#ffffff', 'fill-opacity': 0.04 });
+  mk('line', { x1: -V, y1: 0, x2: V, y2: 0, stroke: '#8a94a6', 'stroke-width': 0.8, 'stroke-dasharray': '4 3' });
+  const t3 = mk('text', { x: V - 4, y: -4, fill: '#8a94a6', 'font-size': 9, 'text-anchor': 'end' }); t3.textContent = '3';
+  const tg = mk('text', { x: -V + 4, y: 11, fill: '#8a94a6', 'font-size': 8 }); tg.textContent = 'вал / земля';
+  mk('circle', { cx: 0, cy: 0, r: Rc, fill: 'none', stroke: '#8a94a6', 'stroke-width': 0.5, 'stroke-opacity': 0.5 });
+
+  for (let i = 0; i < N; i++) {
+    const th = (-90 + (360 / N) * i) * Math.PI / 180;
+    const gx = Rc * Math.cos(th), gy = Rc * Math.sin(th);
+    mk('line', { x1: 0, y1: 0, x2: gx, y2: gy, stroke: '#8a94a6', 'stroke-width': 2, 'stroke-linecap': 'round' });
+    const white = !!opts.mask[i];
+    const g = mk('g', { style: 'cursor:pointer' });
+    mk('circle', { cx: gx, cy: gy, r: rg, fill: white ? '#ffffff' : '#2b3340', stroke: white ? '#b9c2d0' : '#6b7587', 'stroke-width': 1.5 }, g);
+    const lbl = mk('text', { x: gx, y: gy + rg * 0.36, fill: white ? '#111' : '#cfd6e2', 'font-size': Math.max(8, rg * 1.0), 'text-anchor': 'middle', 'font-weight': 600, style: 'pointer-events:none' }, g);
+    lbl.textContent = String(i + 1);
+    g.addEventListener('click', () => onToggle(i));
+  }
+  mk('circle', { cx: 0, cy: 0, r: 4, fill: '#8a94a6' });
+  const dir = mk('text', { x: -V + 4, y: -V + 14, fill: '#8a94a6', 'font-size': 10 });
+  dir.textContent = opts.dir === 'ccw' ? '↺ против часовой' : '↻ по часовой';
+  return svg;
+}
+
+// Белые гонги: по какой последовательности они проходят через фиксированную
+// точку. Лопасти нумеруются по часовой стрелке; при вращении по часовой
+// через точку первой проходит лопасть с БОЛЬШИМ номером (она «впереди» по
+// ходу вращения), при вращении против часовой — с меньшим.
+// Возвращает порядок прохода и промежутки в шагах (1 шаг = T/N).
+function whitePassPattern(N, mask, dir) {
+  const idx = [];
+  for (let i = 0; i < N; i++) if (mask[i]) idx.push(i);
+  if (!idx.length) return null;
+  const order = dir === 'ccw' ? idx : idx.slice().reverse();
+  const steps = order.map((b, k) => {
+    const nb = order[(k + 1) % order.length];
+    const s = dir === 'ccw' ? (nb - b + N) % N : (b - nb + N) % N;
+    return s === 0 ? N : s;
+  });
+  return { order, steps };
+}
+
 route('/moving-target', async () => {
   setHeader({ title: 'Движущаяся цель' });
   const [weapons, cartridges] = await Promise.all([Store.getAll('weapons'), Store.getAll('cartridges')]);
@@ -5164,9 +5226,25 @@ route('/moving-target', async () => {
   state.speed_mils  = state.speed_mils  ?? 5;           // mil/сек
   // ротор
   state.rpm         = state.rpm         ?? 30;
-  state.radius_m    = state.radius_m    ?? 0.5;
+  // radius_m = длина лопасти ДО НАЧАЛА гонга (ближний к оси край). В первой
+  // версии это была длина до внешнего края гонга: сохранённые значения
+  // однократно пересчитываем (внешний край − диаметр гонга = начало гонга).
+  if (state.rotorGeom !== 2) {
+    if (state.radius_m != null) state.radius_m = Math.max(state.radius_m - (state.bladeSize_m ?? 0.1), 0.01);
+    state.rotorGeom = 2;
+  }
+  state.radius_m    = state.radius_m    ?? 0.4;
   state.blades      = state.blades      ?? 4;
   state.bladeSize_m = state.bladeSize_m ?? 0.1;
+  state.whiteMask   = Array.isArray(state.whiteMask) ? state.whiteMask : []; // белые гонги: [true, false, …] по номерам лопастей
+  function normMask() {
+    const n = Math.max(1, Math.min(24, Math.round(state.blades) || 1));
+    const m = [];
+    for (let i = 0; i < n; i++) m.push(state.whiteMask[i] === undefined ? true : !!state.whiteMask[i]);
+    state.whiteMask = m;
+  }
+  normMask();
+  let taps = []; // отметки времени (мс) нажатий «белый гонг прошёл» для замера периода
   state.rotationDir = state.rotationDir || 'cw';   // cw | ccw — куда крутится (вид от стрелка)
   state.reactionSec = state.reactionSec ?? 0.2;    // время реакции + спуска
   state.radiusUnit    = state.radiusUnit    || 'm'; // m | mil — как вводить радиус лопастей
@@ -5362,17 +5440,56 @@ route('/moving-target', async () => {
   // доступно для правки прямо в поле RPM.
   function rpmField() {
     const isCount = state.rpmMode === 'count';
+    const isTap = state.rpmMode === 'tap';
     const wrap = el('div', {});
-    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px' },
+    wrap.appendChild(el('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap' },
       el('label', { style: 'margin:0' }, 'Обороты, RPM'),
       el('div', { class: 'chips', style: 'margin:0' },
-        el('div', { class: 'chip' + (!isCount ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+        el('div', { class: 'chip' + (!isCount && !isTap ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
           onclick: () => { state.rpmMode = 'manual'; save(); } }, 'вручную'),
         el('div', { class: 'chip' + (isCount ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
-          onclick: () => { state.rpmMode = 'count'; save(); } }, 'замер по лопастям')
+          onclick: () => { state.rpmMode = 'count'; save(); } }, 'замер по лопастям'),
+        el('div', { class: 'chip' + (isTap ? ' active' : ''), style: 'padding:2px 8px;font-size:11px',
+          onclick: () => { state.rpmMode = 'tap'; taps = []; save(); } }, 'нажатием на белый')
       )
     ));
-    if (!isCount) {
+    if (isTap) {
+      // Замер периода по белым гонгам: жмёшь каждый раз, когда белый гонг
+      // проходит опорную точку. Сумма W промежутков подряд (W — число белых)
+      // даёт ровно один оборот, поэтому схема расположения белых для замера
+      // не важна. Чем больше полных оборотов, тем точнее среднее.
+      const W = state.whiteMask.filter(Boolean).length;
+      const info = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' });
+      const updateInfo = () => {
+        if (!W) { info.textContent = 'Отметь хотя бы один белый гонг на схеме.'; return; }
+        const k = Math.floor((taps.length - 1) / W);
+        let txt = `Нажатий: ${taps.length}. Для одного оборота нужно ${W + 1} (белых на схеме: ${W}).`;
+        if (taps.length >= 2) txt += ` Последний промежуток: ${fmt((taps[taps.length - 1] - taps[taps.length - 2]) / 1000, 2)} с.`;
+        if (k >= 1) txt += ` Полных оборотов: ${k}.`;
+        info.textContent = txt;
+      };
+      wrap.appendChild(el('button', {
+        type: 'button', class: 'btn', style: 'margin-top:8px;width:100%;padding:18px 10px;font-size:16px',
+        onclick: () => { taps.push(performance.now()); updateInfo(); }
+      }, 'ТАП: белый гонг прошёл опорную точку'));
+      wrap.appendChild(info);
+      updateInfo();
+      wrap.appendChild(el('div', { class: 'row', style: 'margin-top:8px' },
+        el('button', {
+          type: 'button', class: 'btn', onclick: () => {
+            if (!W || taps.length < W + 1) { info.textContent = `Мало нажатий: нужно минимум ${W + 1}.`; return; }
+            const k = Math.floor((taps.length - 1) / W);
+            const T = (taps[k * W] - taps[0]) / 1000 / k;
+            if (!(T > 0)) return;
+            state.rpm = 60 / T;
+            state.rpmMode = 'manual';
+            taps = [];
+            save();
+          }
+        }, 'Рассчитать RPM'),
+        el('button', { type: 'button', class: 'btn ghost', onclick: () => { taps = []; updateInfo(); } }, 'Сброс')
+      ));
+    } else if (!isCount) {
       wrap.appendChild(el('input', { name: 'rpm', type: 'number', step: 'any', inputmode: 'decimal', value: fmt(state.rpm, 2) }));
     } else {
       const secInput = el('input', { name: 'measureSec', type: 'number', step: '0.1', inputmode: 'decimal', value: fmt(state.measureSec, 1) });
@@ -5415,11 +5532,11 @@ route('/moving-target', async () => {
     // стояли в одной строке — переключатель добавлял высоту заголовка только
     // одной из колонок, и инпуты visually расходились по высоте.
     modeCard.appendChild(el('div', { class: 'row' },
-      unitField('radiusUnit', state.radius_m, 'Радиус лопастей'),
+      unitField('radiusUnit', state.radius_m, 'Длина лопасти'),
       unitField('bladeSizeUnit', state.bladeSize_m, 'Диаметр гонга')
     ));
     modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px' },
-      'Радиус лопастей — от оси вращения до ВНЕШНЕГО края гонга (не до его центра).'));
+      'Длина лопасти — от оси вращения до НАЧАЛА гонга (ближний к оси край). Центр гонга = длина + ½ диаметра.'));
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('blades', 'Кол-во лопастей', state.blades),
       selectInput('rotationDir', 'Вращение (вид от стрелка)', state.rotationDir,
@@ -5428,6 +5545,22 @@ route('/moving-target', async () => {
     modeCard.appendChild(el('div', { class: 'row' },
       numInput('reactionSec', 'Реакция+спуск, с', state.reactionSec, { step: '0.01' })
     ));
+    // схема ротора: лопасти на равных углах, тап по гонгу = белый / не белый
+    modeCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:10px' },
+      'Схема ротора. Нажми на гонг, чтобы отметить белые (белый круг) и не белые (тёмный). Номера лопастей идут по часовой от верхней.'));
+    const bladesBox = el('div', {});
+    function redrawBlades() {
+      bladesBox.innerHTML = '';
+      bladesBox.appendChild(drawRotorBladesDiagram(
+        { blades: state.blades, len_m: state.radius_m, gong_m: state.bladeSize_m, mask: state.whiteMask, dir: state.rotationDir },
+        (i) => {
+          state.whiteMask[i] = !state.whiteMask[i];
+          taps = [];
+          save();
+        }));
+    }
+    redrawBlades();
+    modeCard.appendChild(bladesBox);
     function applyModeCardInputs() {
       const d = readForm(modeCard);
       const radius_m = state.radiusUnit === 'mil'
@@ -5436,7 +5569,7 @@ route('/moving-target', async () => {
       const bladeSize_m = state.bladeSizeUnit === 'mil'
         ? (d.bladeSize_mil != null ? (d.bladeSize_mil / 1000) * state.distance_m : state.bladeSize_m)
         : (d.bladeSize_m ?? state.bladeSize_m);
-      const blades = d.blades ?? state.blades;
+      const blades = d.blades != null ? Math.max(1, Math.min(24, Math.round(d.blades))) : state.blades;
       // в режиме «замер» RPM выставляется только кнопкой «Рассчитать» (см.
       // rpmField), не на каждое нажатие клавиши — здесь просто сохраняем
       // введённые сек/лопастей, чтобы не потерялись при переключении экрана.
@@ -5448,9 +5581,10 @@ route('/moving-target', async () => {
         rotationDir: d.rotationDir, reactionSec: d.reactionSec,
         measureSec, measuredPasses
       });
+      normMask();
       localStorage.setItem('moving:last', JSON.stringify(state));
     }
-    modeCard.addEventListener('input', () => { applyModeCardInputs(); renderResult(); });
+    modeCard.addEventListener('input', () => { applyModeCardInputs(); redrawBlades(); renderResult(); });
   }
 
   // ───────── РЕЗУЛЬТАТ ─────────
@@ -5494,11 +5628,54 @@ route('/moving-target', async () => {
     }
   }
 
+  // Белые гонги на схеме → промежутки между их проходами через опорную точку
+  // (шаг между соседними лопастями = T/N) и время спуска: после прохода
+  // белого гонга жди (накопленный интервал до следующего белого − TOF −
+  // реакция) и стреляй; если TOF+реакция длиннее одного интервала, берётся
+  // ближайший белый, до которого накопленный интервал уже не короче.
+  function whiteTimingBlock(periodSec, tLead) {
+    const box = el('div', { style: 'margin-top:10px' });
+    const N = state.whiteMask.length;
+    const pat = whitePassPattern(N, state.whiteMask, state.rotationDir);
+    box.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;letter-spacing:.5px;margin-bottom:4px' }, 'БЕЛЫЕ ГОНГИ'));
+    if (!pat) {
+      box.appendChild(el('div', { class: 'banner' }, 'Нет белых гонгов: отметь хотя бы один на схеме.'));
+      return box;
+    }
+    const W = pat.order.length;
+    const stepSec = periodSec / N; // T/N
+    const gapSec = pat.steps.map(s => s * stepSec);
+    const rows = [
+      el('div', { class: 'k' }, 'Белых из ' + N), el('div', { class: 'v' }, String(W)),
+      el('div', { class: 'k' }, 'Порядок прохода'), el('div', { class: 'v' }, pat.order.map(i => '№' + (i + 1)).join(' → '))
+    ];
+    box.appendChild(el('div', { class: 'kv' }, ...rows));
+    if (!(periodSec > 0)) return box;
+    const list = [];
+    for (let k = 0; k < W; k++) {
+      const a = '№' + (pat.order[k] + 1);
+      const b = '№' + (pat.order[(k + 1) % W] + 1);
+      let txt = `${a} → ${b}: интервал ${fmt(gapSec[k], 2)} с`;
+      if (tLead != null) {
+        let cum = 0, m = 0;
+        while (m < 10 * W + 1) {
+          cum += gapSec[(k + m) % W]; m++;
+          if (cum >= tLead) break;
+        }
+        const target = '№' + (pat.order[(k + m) % W] + 1);
+        txt += `; спуск через ${fmt(cum - tLead, 2)} с после прохода ${a}` + (m > 1 ? ` (ловит ${target}, ${m}-й белый)` : '');
+      }
+      list.push(el('div', { style: 'font-size:13px;margin:2px 0' }, txt));
+    }
+    box.appendChild(el('div', { class: 'info-card', style: 'text-align:left' }, ...list));
+    if (tLead == null) box.appendChild(el('div', { class: 'muted', style: 'font-size:11px' }, 'Чтобы получить время спуска, выбери оружие и патрон (нужен TOF).'));
+    return box;
+  }
   // ротор — метод «3 часа»: точка прицеливания = точка, где гонг касается
   // вала своим НИЖНИМ краем (визуально резкий, легко ловимый момент — а не
   // абстрактная «центр гонга ровно на оси», которая физически не наблюдаема).
-  // radius_m вводится до ВНЕШНЕГО края гонга (см. пометку в UI), поэтому
-  // центр гонга находится на радиусе R_center = radius_m − r_gong; в момент
+  // radius_m вводится до НАЧАЛА гонга (см. пометку в UI), поэтому
+  // центр гонга находится на радиусе R_center = radius_m + r_gong; в момент
   // касания нижним краем центр гонга выше оси ровно на r_gong, то есть
   // опорная точка сдвинута от оси на угол thetaRef = asin(r_gong/R_center),
   // а не на 0, как в первой версии расчёта (там это давало ошибку порядка
@@ -5510,7 +5687,7 @@ route('/moving-target', async () => {
   function renderRotorResult(row) {
     const omega = (state.rpm * 2 * Math.PI) / 60; // рад/с
     const r_gong = (state.bladeSize_m || 0) / 2;   // радиус гонга (bladeSize_m — диаметр)
-    const R_center = Math.max(state.radius_m - r_gong, 0.001); // радиус до ЦЕНТРА гонга
+    const R_center = Math.max(state.radius_m + r_gong, 0.001); // радиус до ЦЕНТРА гонга: длина до начала гонга + его радиус
     const thetaRef = Math.asin(Math.min(1, r_gong / R_center)); // угол опорной точки от оси
     const v_tan = omega * R_center; // м/с — скорость ЦЕНТРА гонга
     const windowSec = v_tan > 0 ? state.bladeSize_m / v_tan : 0;
@@ -5523,6 +5700,10 @@ route('/moving-target', async () => {
       el('div', { class: 'k' }, 'Окно поражения'), el('div', { class: 'v' }, fmt(windowSec, 3) + ' с'),
       el('div', { class: 'k' }, 'Дистанция'), el('div', { class: 'v' }, state.distance_m + ' м')
     ));
+
+    // белые гонги: интервалы между проходами через опорную точку и момент спуска
+    // (tLead = TOF + реакция из солвера; без оружия/патрона — только интервалы)
+    resultCard.appendChild(whiteTimingBlock(periodSec, row ? row.tof_s + (state.reactionSec || 0) : null));
 
     if (!row) {
       resultCard.appendChild(el('div', { class: 'banner' },
