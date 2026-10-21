@@ -5039,6 +5039,7 @@ function openRotorHelpSheet() {
       <p><b>2.</b> Выбери сигнал и введи TOF, поправку на дистанцию и ветер (авто или из AB Quantum).</p>
       <p><b>3.</b> Накрути барабаны на «Накрутка ВЕРТИКАЛЬ» и «Накрутка ГОРИЗОНТАЛЬ» из расчёта. Это итог: обычная поправка и ветер уже учтены.</p>
       <p><b>4.</b> Наведи точку A на сетку так, как написано в «Точка A на сетке от центра».</p>
+      <p><b>Схемы под расчётом.</b> Приложение рисует две картинки по твоим данным: ротор (где гонг в момент выстрела, где точка A, за сколько секунд гонг дойдёт до A) и сетку прицела (куда поставить A, где гонг пересечёт сетку, «ЖМИ СПУСК»). Карточки «КРУТИ / ЦЕЛЬСЯ / ЖМИ» над ними содержат ту же информацию крупным текстом. Сетка на картинке условная: шкала в mil, «ёлочка» со строк 2 mil вниз.</p>
       <p><b>5.</b> Жди белый гонг. Жми спуск, когда центр гонга пересечёт выбранную линию. Место пересечения написано в «Гонг пересечёт сетку». Это проверка, что всё сошлось.</p>
 
       <h4 style="color:var(--accent);margin:14px 0 4px;letter-spacing:1px">Ограничения (приложение предупреждает)</h4>
@@ -5097,66 +5098,135 @@ function openReticleCalHelpSheet() {
 // Схема сетки для метода «3 часа» на роторе: кружок = метка удержания (на
 // ёлочке, ниже центра), крестик = точка на горизонтальной линии, где её
 // пересечёт гонг — сигнал к выстрелу.
-function drawRotorReticleDiagram(crossX, crossY, holdX, holdY, zoom) {
+function drawRotorReticleDiagram(o, zoom) {
+  // o: crossX/crossY — где центр гонга пересечёт сетку в момент выстрела (от центра, mil, вправо/вверх +),
+  // holdX/holdY — где на сетке стоит точка A (от центра), rgMil — радиус гонга в mil, path — точки
+  // пути гонга от выстрела до A (от центра), trig — сигнал: 'h' | 'v' | 'both'
   const NS = 'http://www.w3.org/2000/svg';
-  const R = 90;
   const z = zoom || 1;
-  const maxMil = Math.max(4, Math.abs(crossX) * 1.5, Math.abs(crossY) * 1.5, Math.abs(holdX) * 1.5, Math.abs(holdY) * 1.5);
-  const px = (R - 14) / maxMil; // SVG-юнитов на 1 mil — не зависит от zoom, позиции всегда верные
+  const V = 180;
+  const pts = [[o.crossX, o.crossY], [o.holdX, o.holdY], [0, 0]].concat(o.path || []);
+  const maxMil = Math.max(4, Math.ceil(1.25 * Math.max(...pts.map(q => Math.max(Math.abs(q[0]), Math.abs(q[1]))))));
+  const px = (V - 26) / maxMil;
   const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', `-${R} -${R} ${2 * R} ${2 * R}`);
+  svg.setAttribute('viewBox', `-${V} -${V} ${2 * V} ${2 * V}`);
   svg.setAttribute('class', 'reticle-svg');
-  const widthPx = Math.round(220 * z);
-  // .reticle-svg (общий класс с библиотекой сеток) задаёт max-width:380px —
-  // без явного сброса это глушит рост при zoom>~1.7, обойдено ниже. При этом
-  // на маленьких экранах ширина не должна вылезать за пределы вьюпорта.
-  svg.style.width = `min(${widthPx}px, 92vw)`; svg.style.maxWidth = 'none';
+  svg.style.width = `min(${Math.round(340 * z)}px, 94vw)`; svg.style.maxWidth = 'none';
   svg.style.margin = '6px auto'; svg.style.display = 'block';
-  const mk = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.appendChild(e); return e; };
-
-  // --- сама сетка: чистый белый на чёрном, растёт вместе с zoom (первая
-  // фокальная плоскость — толщина/размер задан в SVG-юнитах и не делится
-  // на z, поэтому при увеличении картинки сетка становится крупнее и
-  // подробнее видна) ---
-  mk('line', { x1: -R + 6, y1: 0, x2: R - 6, y2: 0, stroke: '#fff', 'stroke-width': 0.23 });
-  mk('line', { x1: 0, y1: -R + 6, x2: 0, y2: R - 6, stroke: '#fff', 'stroke-width': 0.23 });
-  // риски через 0.5 mil на ОБЕИХ осях: целые (1, 2, 3…) — крупные и толще,
-  // половинки (0.5, 1.5…) — мельче. Раньше половинки/деления были только на
-  // горизонтальной оси, на вертикальной — только декоративная «ёлочка» без
-  // единого шага; теперь обе оси размечены одинаково.
-  for (let m = 0.5; m <= maxMil; m += 0.5) {
-    const isMajor = Math.abs(m - Math.round(m)) < 1e-6;
-    const p = m * px;
-    const halfH = isMajor ? 5.5 : 2.5;
-    const sw = isMajor ? 0.23 : 0.15;
-    mk('line', { x1: p, y1: -halfH, x2: p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
-    mk('line', { x1: -p, y1: -halfH, x2: -p, y2: halfH, stroke: '#fff', 'stroke-width': sw });
-    mk('line', { x1: -halfH, y1: p, x2: halfH, y2: p, stroke: '#fff', 'stroke-width': sw });
-    mk('line', { x1: -halfH, y1: -p, x2: halfH, y2: -p, stroke: '#fff', 'stroke-width': sw });
-  }
-  mk('circle', { cx: 0, cy: 0, r: 2, fill: '#fff' });
-
-  // --- метки (куда целиться / где стрелять): размер делим на z, поэтому
-  // рендер-пиксели остаются константными при любом zoom — толстый крест и
-  // круг не «раздуваются» и не перекрывают сетку при увеличении, как в
-  // прицеле с реальной первой фокальной плоскостью для самих делений и
-  // фиксированным размером маркеров сверху ---
+  const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
   const m = 1 / z;
+  const defs = mk('defs', {});
+  const mrk = mk('marker', { id: 'rotArrow', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, defs);
+  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#ffd24a' }, mrk);
+  const W = '#e6edf3', G = '#8b97a7';
+  // оси и засечки через 1 mil (подписи через 1 или 2 mil)
+  mk('line', { x1: -V + 4, y1: 0, x2: V - 4, y2: 0, stroke: W, 'stroke-width': 0.8 });
+  mk('line', { x1: 0, y1: -V + 4, x2: 0, y2: V - 4, stroke: W, 'stroke-width': 0.8 });
+  const step = maxMil > 6 ? 2 : 1;
+  for (let k = 1; k <= maxMil; k++) {
+    const t = k * px;
+    mk('line', { x1: t, y1: -3, x2: t, y2: 3, stroke: W, 'stroke-width': 0.6 });
+    mk('line', { x1: -t, y1: -3, x2: -t, y2: 3, stroke: W, 'stroke-width': 0.6 });
+    mk('line', { x1: -3, y1: -t, x2: 3, y2: -t, stroke: W, 'stroke-width': 0.6 });
+    if (k % step === 0) {
+      for (const sx of [1, -1]) { const tx = mk('text', { x: sx * t, y: 13, fill: G, 'font-size': 8, 'text-anchor': 'middle' }); tx.textContent = k; }
+      const ty = mk('text', { x: -6, y: -t + 3, fill: G, 'font-size': 8, 'text-anchor': 'end' }); ty.textContent = k;
+    }
+  }
+  // «ёлочка»: строки через 1 mil от 2 mil вниз, полуширина = номер строки / 2
+  for (let r = 2; r <= Math.min(maxMil, 12); r++) {
+    const yy = r * px, hw = r * px / 2;
+    mk('line', { x1: -hw, y1: yy, x2: hw, y2: yy, stroke: W, 'stroke-width': 0.8 });
+    mk('line', { x1: -hw, y1: yy - 3, x2: -hw, y2: yy + 3, stroke: W, 'stroke-width': 0.6 });
+    mk('line', { x1: hw, y1: yy - 3, x2: hw, y2: yy + 3, stroke: W, 'stroke-width': 0.6 });
+    const tr = mk('text', { x: -hw - 5, y: yy + 3, fill: G, 'font-size': 8, 'text-anchor': 'end' }); tr.textContent = r;
+  }
+  // путь гонга от места выстрела до A
+  const P = q => [q[0] * px, -q[1] * px];
+  const pp = (o.path || []).map(P);
+  if (pp.length > 1) {
+    mk('polyline', { points: pp.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#ffd24a', 'stroke-width': 1.4 * m, 'stroke-dasharray': `${4 * m} ${3 * m}`, 'marker-end': 'url(#rotArrow)' });
+  }
+  // A — куда придут пуля и гонг
+  const [ax, ay] = P([o.holdX, o.holdY]);
+  mk('circle', { cx: ax, cy: ay, r: 6 * m, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 * m });
+  mk('circle', { cx: ax, cy: ay, r: 1.6 * m, fill: '#ff8b3d' });
+  const aRight = ax >= 0; // подпись снаружи от центра и выше оси, чтобы не ложиться на линии
+  const aL = mk('text', { x: ax + (aRight ? 10 : -10) * m, y: ay - 9 * m, fill: '#ff8b3d', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': aRight ? 'start' : 'end' }); aL.textContent = 'A: сюда пуля';
+  // гонг в момент выстрела
+  const [gx, gy] = P([o.crossX, o.crossY]);
+  const gr = Math.max((o.rgMil || 0) * px, 6 * m);
+  mk('circle', { cx: gx, cy: gy, r: gr, fill: '#ffffff', stroke: '#4ade80', 'stroke-width': 2 * m });
+  const gRight = gx <= 0;
+  const gL = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy - 2 * m, fill: '#4ade80', 'font-size': 11 * m, 'font-weight': 700, 'text-anchor': gRight ? 'end' : 'start' }); gL.textContent = 'ЖМИ СПУСК';
+  const gL2 = mk('text', { x: gx + (gRight ? -(gr + 5 * m) : (gr + 5 * m)), y: gy + 10 * m, fill: '#4ade80', 'font-size': 9 * m, 'text-anchor': gRight ? 'end' : 'start' }); gL2.textContent = 'гонг здесь';
+  // подпись линии-сигнала
+  const lineTxt = o.trig === 'h' ? 'сигнал: горизонталь' : (o.trig === 'v' ? 'сигнал: вертикаль' : 'сигнал: центр');
+  const lt = mk('text', { x: -V + 8, y: -V + 14, fill: '#4ade80', 'font-size': 10, 'text-anchor': 'start' }); lt.textContent = lineTxt;
+  return svg;
+}
 
-  // опорная точка (куда должен прийти центр гонга): оранжевый круг
-  const hx = holdX * px, hy = -holdY * px; // в SVG y растёт вниз, а положительное holdY — вверх
-  mk('circle', { cx: hx, cy: hy, r: 6 * m, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 2 * m });
-  mk('circle', { cx: hx, cy: hy, r: 1.5 * m, fill: '#ff8b3d' });
-  const holdLabel = mk('text', { x: hx + 10 * m, y: hy + 4 * m, fill: '#ff8b3d', 'font-size': 8 * m });
-  holdLabel.textContent = 'опорная точка';
-
-  // место на сетке, где центр гонга окажется в момент выстрела: зелёный крестик
-  const gx = crossX * px, gy = -crossY * px;
-  mk('line', { x1: gx - 6 * m, y1: gy - 6 * m, x2: gx + 6 * m, y2: gy + 6 * m, stroke: '#4ade80', 'stroke-width': 2.4 * m, 'stroke-linecap': 'round' });
-  mk('line', { x1: gx - 6 * m, y1: gy + 6 * m, x2: gx + 6 * m, y2: gy - 6 * m, stroke: '#4ade80', 'stroke-width': 2.4 * m, 'stroke-linecap': 'round' });
-  const crossLabel = mk('text', { x: gx, y: gy - 12 * m, fill: '#4ade80', 'font-size': 8 * m, 'text-anchor': 'middle' });
-  crossLabel.textContent = 'огонь';
-
+// Схема ротора со стороны стрелка: где гонг в момент выстрела, куда он дойдёт (точка A), за какое время.
+function drawRotorSceneDiagram(o) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 360, H = 300;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.width = 'min(360px, 94vw)'; svg.style.display = 'block'; svg.style.margin = '6px auto';
+  svg.style.background = '#0a0e14'; svg.style.borderRadius = '8px';
+  const mk = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
+  const txt = (x, y, str, fill, size, anchor, weight) => { const t = mk('text', { x, y, fill, 'font-size': size, 'text-anchor': anchor || 'start', 'font-weight': weight || 400 }); t.textContent = str; return t; };
+  const ccw = o.ccw;
+  const mirror = ccw ? -1 : 1;
+  const s = 92 / o.R;                          // px на метр: радиус центра гонга = 92 px
+  const Ox = ccw ? 230 : 130, Oy = 150;
+  const a0 = o.theta + o.phi;
+  const Pt = a => [Ox + mirror * s * o.R * Math.cos(a), Oy - s * o.R * Math.sin(a)];
+  const A = Pt(o.theta), Gp = Pt(a0);
+  const rg = Math.max(s * o.rg, 8);
+  mk('rect', { x: 4, y: Oy, width: W - 8, height: 70, fill: '#ffffff', 'fill-opacity': 0.06 });
+  mk('line', { x1: 4, y1: Oy, x2: W - 4, y2: Oy, stroke: '#8b97a7', 'stroke-width': 1, 'stroke-dasharray': '5 4' });
+  txt(W / 2, Oy + 44, 'вал и земля: нижняя половина скрыта', '#8b97a7', 10, 'middle');
+  mk('circle', { cx: Ox, cy: Oy, r: s * o.R, fill: 'none', stroke: '#3b4656', 'stroke-width': 1, 'stroke-dasharray': '3 4' });
+  mk('line', { x1: Ox, y1: Oy, x2: Gp[0], y2: Gp[1], stroke: '#8b97a7', 'stroke-width': 2, 'stroke-linecap': 'round' });
+  mk('line', { x1: Ox, y1: Oy, x2: A[0], y2: A[1], stroke: '#8b97a7', 'stroke-width': 1, 'stroke-dasharray': '4 3' });
+  mk('circle', { cx: Ox, cy: Oy, r: 4, fill: '#8b97a7' });
+  // путь гонга
+  const arc = [];
+  for (let i = 0; i <= 8; i++) arc.push(Pt(a0 - (a0 - o.theta) * i / 8));
+  const defs = mk('defs', {});
+  const mrk = mk('marker', { id: 'scArrow', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, defs);
+  mk('path', { d: 'M1 1L9 5L1 9z', fill: '#ffd24a' }, mrk);
+  mk('polyline', { points: arc.map(q => q.join(',')).join(' '), fill: 'none', stroke: '#ffd24a', 'stroke-width': 1.5, 'marker-end': 'url(#scArrow)' });
+  // A: пустой гонг и точка центра
+  mk('circle', { cx: A[0], cy: A[1], r: rg, fill: 'none', stroke: '#ff8b3d', 'stroke-width': 1.5, 'stroke-dasharray': '3 2' });
+  mk('circle', { cx: A[0], cy: A[1], r: 3, fill: '#ff8b3d' });
+  // гонг в момент выстрела
+  mk('circle', { cx: Gp[0], cy: Gp[1], r: rg, fill: '#ffffff', stroke: '#4ade80', 'stroke-width': 2 });
+  // подписи (в сторону от ротора)
+  const side = ccw ? -1 : 1;
+  const lx = A[0] + side * (rg + 14);
+  const anchor = ccw ? 'end' : 'start';
+  txt(lx, A[1] + 4, 'A', '#ff8b3d', 14, anchor, 700);
+  txt(lx, A[1] + 18, 'сюда придут', '#ff8b3d', 10, anchor);
+  txt(lx, A[1] + 30, 'гонг и пуля', '#ff8b3d', 10, anchor);
+  const gxl = Gp[0] + side * (rg + 8);
+  txt(gxl, Gp[1] - 2, 'ВЫСТРЕЛ', '#4ade80', 11, anchor, 700);
+  txt(gxl, Gp[1] + 11, 'гонг здесь', '#4ade80', 10, anchor);
+  // размеры dy / dx
+  const dxMil = Math.abs(o.dxMil), dyMil = Math.abs(o.dyMil);
+  const vx = A[0] + side * (rg + 52);
+  mk('line', { x1: vx, y1: A[1], x2: vx, y2: Gp[1], stroke: '#8b97a7', 'stroke-width': 0.8 });
+  mk('line', { x1: A[0] + side * (rg + 4), y1: A[1], x2: vx + side * 4, y2: A[1], stroke: '#8b97a7', 'stroke-width': 0.5 });
+  mk('line', { x1: Gp[0] + side * (rg + 4), y1: Gp[1], x2: vx + side * 4, y2: Gp[1], stroke: '#8b97a7', 'stroke-width': 0.5 });
+  txt(vx + side * 6, (A[1] + Gp[1]) / 2 + 4, 'выше', '#cfd6e2', 10, anchor);
+  txt(vx + side * 6, (A[1] + Gp[1]) / 2 + 17, fmt(dyMil, 2) + ' mil', '#cfd6e2', 11, anchor, 700);
+  const hy = Math.max(Gp[1] - rg - 14, 18);
+  mk('line', { x1: Gp[0], y1: hy, x2: A[0], y2: hy, stroke: '#8b97a7', 'stroke-width': 0.8 });
+  mk('line', { x1: Gp[0], y1: hy - 4, x2: Gp[0], y2: hy + 4, stroke: '#8b97a7', 'stroke-width': 0.8 });
+  mk('line', { x1: A[0], y1: hy - 4, x2: A[0], y2: A[1] - rg - 4, stroke: '#8b97a7', 'stroke-width': 0.5, 'stroke-dasharray': '2 3' });
+  txt((Gp[0] + A[0]) / 2, hy - 5, (o.dxMil > 0 ? 'правее' : 'левее') + ' A на ' + fmt(dxMil, 2) + ' mil', '#cfd6e2', 10, 'middle');
+  txt(W / 2, H - 10, 'до A гонг идёт ' + fmt(o.tLead, 2) + ' с (полёт пули + реакция)', '#ffd24a', 11, 'middle', 700);
   return svg;
 }
 
@@ -5864,11 +5934,26 @@ route('/moving-target', async () => {
       el('div', { class: 'k' }, 'TOF+реакция'), el('div', { class: 'v' }, fmt(tLead, 3) + ' с')
     ));
     const lineName = trig === 'h' ? 'ГОРИЗОНТАЛЬНУЮ линию' : (trig === 'v' ? 'ВЕРТИКАЛЬНУЮ линию' : 'ЦЕНТР перекрестия (пересечение линий)');
-    resultCard.appendChild(el('div', { class: 'banner accent' },
-      `1) Накрути барабаны: вертикаль ${hasDrop ? fmt(Math.abs(totalV), 2) + ' mil ' + dirV(totalV) + ' от нуля' : '(обычная поправка) ' + (cy ? (cy > 0 ? 'минус ' : 'плюс ') + fmt(Math.abs(cy), 2) + ' mil' : 'без изменений')}` +
-      `, горизонталь ${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)}. ` +
-      `2) Наведи точку A (центр гонга, когда он нижним краем сел на вал) на сетку: вертикаль — ${off(holdY, 'выше центра', 'ниже центра', 'на уровне центра')}, горизонталь — ${off(holdX, 'правее центра', 'левее центра', 'по центру')}. ` +
-      `3) Жми спуск, когда центр гонга пересечёт ${lineName}: он будет ${off(crossY, 'выше центра', 'ниже центра', 'на уровне центра')} и ${off(crossX, 'правее центра', 'левее центра', 'на вертикали центра')}.`));
+    const stepBox = (num, title, lines) => el('div', { style: 'border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--panel-2)' },
+      el('div', { style: 'font-size:12px;letter-spacing:1px;color:var(--accent);font-weight:700' }, `${num}. ${title}`),
+      ...lines.map(t => el('div', { style: 'font-size:17px;line-height:1.4;margin-top:4px' }, t)));
+    const vTxt = hasDrop
+      ? `Вертикаль: ${fmt(Math.abs(totalV), 2)} mil ${dirV(totalV)} от нуля (≈${fmt(Math.abs(clicksV), 0)} кликов)`
+      : `Вертикаль: обычная поправка ${cy ? (cy > 0 ? 'минус ' : 'плюс ') + fmt(Math.abs(cy), 2) + ' mil' : 'без изменений'}`;
+    resultCard.appendChild(stepBox(1, 'КРУТИ БАРАБАНЫ', [
+      vTxt,
+      `Горизонталь: ${fmt(Math.abs(totalH), 2)} mil ${dirH(totalH)}` + (hasWind ? ` (в том числе ветер ${fmt(Math.abs(windMil), 2)} ${dirH(windMil)})` : '')
+    ]));
+    resultCard.appendChild(stepBox(2, 'ЦЕЛЬСЯ', [
+      'Точку A (центр гонга, севшего нижним краем на вал) поставь на сетке:',
+      `по вертикали — ${off(holdY, 'выше центра', 'ниже центра', 'на уровне центра')}`,
+      `по горизонтали — ${off(holdX, 'правее центра', 'левее центра', 'по центру')}`
+    ]));
+    resultCard.appendChild(stepBox(3, 'ЖМИ СПУСК', [
+      `Когда центр гонга пересечёт ${lineName}`,
+      `гонг будет ${off(crossY, 'выше центра', 'ниже центра', 'на уровне центра')}, ${off(crossX, 'правее центра', 'левее центра', 'на вертикали центра')}`,
+      `Дальше ничего считать не надо: за ${fmt(tLead, 2)} с гонг дойдёт до A, пуля тоже.`
+    ]));
     if (hasDrop && totalV < 0) {
       resultCard.appendChild(el('div', { class: 'banner' },
         `ВНИМАНИЕ: вертикальная накрутка вышла ниже нуля (${fmt(totalV, 2)} mil). Нужен запас барабана вниз от нуля. Если его нет, выбери сигнал «Вертикальная линия»: там вертикаль крутится как обычно, а смещение идёт по горизонтали.`));
@@ -5882,18 +5967,28 @@ route('/moving-target', async () => {
         'ВНИМАНИЕ: гонг за время TOF+реакция проходит больше пол-оборота. Метод сигнала по линии сетки здесь не работает; считай по времени (блок «Белые гонги»).'));
     }
 
-    // — схема сетки: кружок = куда целиться (метка), крестик = где будет пересечение —
-    // значок-лупа открывает увеличенную (×3) версию поверх экрана, для ознакомления;
-    // сама схема на экране результата остаётся в исходном размере.
-    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:10px' }, 'Схема сетки (условно)'));
-    resultCard.appendChild(el('div', { style: 'position:relative;max-width:220px;margin:4px auto 0' },
-      drawRotorReticleDiagram(crossX, crossY, holdX, holdY, 1),
+    // Схемы: ротор (где гонг при выстреле и точка A) и сетка (куда целиться, где гонг, когда жать)
+    const ccw = state.rotationDir === 'ccw';
+    const mpm = state.distance_m / 1000;          // метров на 1 mil
+    const pathRel = [];
+    for (let i = 0; i <= 8; i++) {
+      const aa = (thetaRef + phi) - phi * i / 8;
+      const px_ = (ccw ? -1 : 1) * R_center * (Math.cos(aa) - Math.cos(thetaRef)) / mpm;
+      const py_ = (R_center * Math.sin(aa) - r_gong) / mpm;
+      pathRel.push([holdX + px_, holdY + py_]);
+    }
+    const shot = { crossX, crossY, holdX, holdY, rgMil: r_gong / mpm, path: pathRel, trig };
+    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:12px' }, 'Схема ротора: где гонг при выстреле и точка A'));
+    resultCard.appendChild(drawRotorSceneDiagram({ R: R_center, rg: r_gong, theta: thetaRef, phi, ccw, dxMil: dx_mil, dyMil: dy_mil, tLead }));
+    resultCard.appendChild(el('div', { class: 'muted center', style: 'font-size:11px;margin-top:12px' }, 'Сетка прицела (условно, шкала в mil): куда целиться и где гонг в момент выстрела'));
+    resultCard.appendChild(el('div', { style: 'position:relative;max-width:360px;margin:4px auto 0' },
+      drawRotorReticleDiagram(shot, 1),
       el('button', {
         type: 'button', 'aria-label': 'Увеличить схему',
         style: 'position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);color:var(--accent);font-size:14px;cursor:pointer;padding:0;line-height:1',
         onclick: () => openSheet((sheet, close) => {
-          sheet.appendChild(el('h3', {}, 'Схема сетки (×3)'));
-          sheet.appendChild(drawRotorReticleDiagram(crossX, crossY, holdX, holdY, 3));
+          sheet.appendChild(el('h3', {}, 'Схема сетки (×2)'));
+          sheet.appendChild(drawRotorReticleDiagram(shot, 2));
           sheet.appendChild(el('button', { type: 'button', class: 'btn', onclick: close, style: 'margin-top:14px' }, 'Закрыть'));
         })
       }, '🔍')
